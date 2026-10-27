@@ -223,6 +223,28 @@ static Uint64 tick_due_ns(Uint64 n)
     return clock_start_ns + n * VGA_FRAME_NS_NUM / VGA_FRAME_NS_DEN;
 }
 
+uint64_t host_tick_time_ns(uint64_t tick) { return tick_due_ns(tick) - clock_start_ns; }   /* ENH: S4.1 */
+
+/* ENH: S4.1, the display's refresh period (checked again every second: the window may move to another display) */
+uint64_t host_refresh_ns(void)
+{
+    static Uint64 iv, checked_at;
+    const Uint64 now = SDL_GetTicksNS();
+    if (!iv || now - checked_at > SDL_NS_PER_SECOND) {
+        float hz = 0;
+        SDL_DisplayID d = window && !headless ? SDL_GetDisplayForWindow(window) : 0;
+        const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : NULL;
+        if (m) hz = m->refresh_rate;
+        if (!(hz > 20)) hz = 60;
+        iv = (Uint64)(1e9 / hz);
+        checked_at = now;
+    }
+    return iv;
+}
+
+static Uint64 pres_n, pres_ns;                    /* ENH: S4.1 */
+void host_present_stats(uint64_t *n, uint64_t *ns) { *n = pres_n; *ns = pres_ns; }
+
 bool host_trace(void)
 {
     if (trace < 0) {
@@ -311,12 +333,14 @@ static void present(void)
                                           (double)((vclock ? vclock_ns : SDL_GetTicksNS()) - clock_start_ns) / 1e9);
     snapshot();
     if (!texture) return;
+    const Uint64 t0 = SDL_GetTicksNS();                   /* ENH: S4.1, the cost per present */
     SDL_UpdateTexture(texture, NULL, frame, frame_w * 4);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
     SDL_FRect dst = { 0, 0, (float)view_w(), (float)view_h() };
     SDL_RenderTexture(renderer, texture, NULL, &dst);
     SDL_RenderPresent(renderer);
+    pres_ns += SDL_GetTicksNS() - t0; pres_n++;           /* ENH: S4.1 */
 }
 
 static Uint64 last_present_ns;
@@ -398,7 +422,7 @@ void host_pump(void)
     }
 
     /* Present at most once per ~8 ms; VSync paces it further. */
-    if (frame_source && now - last_present_ns >= 8 * SDL_NS_PER_MS) {
+    if (frame_source && (now - last_present_ns >= 8 * SDL_NS_PER_MS || enh_display_ready())) {   /* ENH: S4.1, a display pass's picture at once */
         canvas_sync();                              /* ENH: the canvas follows the window */
         const bool changed = frame_source(frame);
         if (!changed) snapshot_static();

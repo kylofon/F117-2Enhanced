@@ -377,13 +377,16 @@ static void probe_flip(void);
 /* ---------------------------------------------------------------- the wide picture (S3.4) */
 
 /* The 3D layer (whole canvas) and the vector layer (used outside the frame) of the last wide display pass, as its flip left them. [0] = pending (the pass of the
- * frame being drawn), [1] = current (the frame on screen): the live flip of the canonical frame makes the pending one current. */
+ * frame being drawn), [1] = current (the frame on screen): the live flip of the canonical frame makes the pending one current. [2] (S4.1): the wide pass of the
+ * display refresh being built, composed with that refresh's main pass (enh_compose_display) and then void. */
 typedef struct { bool valid; EnhCanvas cv; int x0, y0, x1, y1; u16 *l3, *lv; u8 *n3; size_t cap; } Held;   /* n3: S3.6, the night plane of l3 */
-static Held held[2];
+static Held held[3];
 
-void enh_wide_capture(void)
+void enh_wide_capture(void) { enh_wide_capture_to(0); }
+
+void enh_wide_capture_to(int slot)
 {
-    Held *h = &held[0];
+    Held *h = &held[slot];
     h->valid = false;
     if (!layer_px || !enh_wide_drawn) return;
     if (h->cap < layer_px) {
@@ -555,19 +558,37 @@ static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *
     }
 }
 
-/* S3.4: the sources of the present path: the shown plane and layers, and the wide picture of the frame on screen when it belongs to this placement */
-static void compose_src_live(ComposeSrc *cs)
+/* S3.4: the sources of the present path: the shown plane and layers, and the wide picture h when it belongs to this placement (S4.1: inside a display pass the
+ * shown plane and layers are the pass's) */
+static void compose_src(ComposeSrc *cs, const Held *h)
 {
     memset(cs, 0, sizeof *cs);
     cs->sh = sh_shown; cs->l3 = l3d_shown; cs->lv = lvec_shown;
     cs->blend = true;                                                 /* S3.5: the live DAC */
     cs->n3 = l3n_shown;                                               /* S3.6 */
-    const Held *h = &held[1];
     if (h->valid && !menu_on && enh_canvas_extended() && h->cap >= layer_px && !memcmp(&h->cv, &enh_cv, sizeof enh_cv)) {
         cs->l3h = h->l3; cs->lvh = h->lv; cs->n3h = h->n3;
         cs->hx0 = h->x0; cs->hy0 = h->y0; cs->hx1 = h->x1; cs->hy1 = h->y1;
     }
 }
+
+static void compose_src_live(ComposeSrc *cs) { compose_src(cs, &held[1]); }
+
+/* S4.1: in a display pass after its flip (sandbox.c): the pass's shown page, plane and layers with the refresh's wide picture (held[2]) into out (the pass's canvas
+ * size); the DAC / CRTC are the live ones (sandbox.c puts them in before). */
+void enh_compose_display(u32 *out)
+{
+    static u8 idx[PAGE_PIXELS];
+    static u16 sidx[PAGE_PIXELS];
+    u32 pal[256];
+    const bool screen = vga_shown_frame(idx, sidx, pal);
+    ComposeSrc cs;
+    compose_src(&cs, &held[2]);
+    compose_canvas(out, idx, sidx, pal, screen, &cs);
+    held[2].valid = false;
+}
+
+bool enh_compose_menu(void) { return menu_on; }
 
 bool enh_compose_vga(u32 *xrgb)
 {
@@ -578,10 +599,15 @@ bool enh_compose_vga(u32 *xrgb)
     u32 pal[256];
     const size_t px = (size_t)enh_cv.lw * (size_t)enh_cv.lh;
     if (present_hold) return false;                                   /* S3.4 fix 4: the last picture stays until the new placement's first frame is flipped */
+    if (!menu_on) {                                                   /* S4.1: in flight the display passes' pictures are presented (sandbox.c), not the live page */
+        const int d = enh_display_take(xrgb);
+        if (d >= 0) { last_px = (size_t)-1; return d > 0; }
+    }
     bool screen = vga_shown_frame(idx, sidx, pal);
     ComposeSrc cs;
     compose_src_live(&cs);                                            /* ENH: S3.4, with the wide picture */
     compose_canvas(xrgb, idx, sidx, pal, screen, &cs);
+    if (last_px == (size_t)-1) { free(last); last = NULL; last_px = 0; }   /* S4.1: a display picture was shown since */
     if (last_px == px && last && !memcmp(last, xrgb, px * sizeof(u32))) return false;
     if (last_px != px) { free(last); last = malloc(px * sizeof(u32)); last_px = last ? px : 0; }
     if (last) memcpy(last, xrgb, px * sizeof(u32));

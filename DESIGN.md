@@ -544,6 +544,53 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
   `enh_frame_begin`, i.e. the state the previous step left) FNV-1a hashes of DGROUP, the comm block, the LCG `926E`, the sound
   driver's memory, the OPL write stream, all of `mem[]`, vram + DAC and the canvas, and a final line at exit. No field is excluded.
 
+### 4.8 As built (S4.1): the display stream
+* **Option** `--fps vsync|60|30|off` (`enh.fps`, default vsync; `--classic` = off; also in `F117_ENH_ARGS`; the launcher control is S4.5). `off` is the S3.4
+  path: one picture per sim step (the canonical frame, with its one wide pass). Any other value makes every VGAME frame that loads no cockpit picture a
+  **stream frame** (`sandbox.c enh_frame_begin`): the screen shows only display refreshes, never the live page.
+* **A display refresh** (`refresh(alpha)`) = the wide pass (only in an extended view whose canvas is larger than the frame: it captures its 3D / vector layers
+  into a third held slot, `enh_wide_capture_to(2)`) and then the main pass, both on A_k with the fields at alpha (`enh_interp_apply`, below). After the main
+  pass's flip, still inside the sandbox, the live DAC / CRTC / attribute / sequencer registers (taken before the pass: `vga_look_get/set`, so the timer's DAC
+  flicker and CRTC shake between steps show) are put back and the pass's page, shadow plane and layers are composed with the slot-2 wide picture
+  (`enh_compose_display`) into the display picture; then the live machine is restored as in 4.7. In a stream frame the S3.4 per-frame wide pass is not run
+  (the refreshes carry the wide picture); the `--mfd-probe` test aid keeps it, because the probes measure the canonical frame.
+* **Timing (display clock).** `frame_floor` calls `enh_display_wait(last + n)` in each wait iteration instead of `enh_idle`, and `enh_frame_end()` just before
+  the flip. The display clock is the SDL performance counter (ns); ticks and the sim's counters are never used for it. A refresh is due when the refresh
+  interval has passed since the last one started: the display's refresh period (`host_refresh_ns`, `SDL_GetCurrentDisplayMode`, 60 Hz headless) for vsync,
+  1/60 s or 1/30 s, each less 1.5 ms so that VSync, not this timer, decides (AotP). After the frame's first refresh a refresh is started only if it ends
+  (EMA of the measured cost) before the step is due (`host_tick_time_ns(last + n)`): the flip keeps its time. A frame that had no refresh in its wait (no time
+  left, or `frame_ticks` 0) gets one in `enh_frame_end`. `alpha = clamp((now - t_flip) / P, 0, 1)` with `t_flip` the display time of the last flip and `P` =
+  `frame_ticks` x 1/70.086 s, or the EMA of the measured flip interval when that is longer (a step that overran). The presenter (`enh_compose_vga` ->
+  `enh_display_take`) copies the newest picture; `host_pump` presents it at once (`enh_display_ready`, besides its 8 ms gate); with no new picture nothing is
+  presented (VSync, the window repaint and the snapshot aid keep the last).
+* **Interpolated fields** (`enhanced/interp.c`, read at every frame start: F_k; F_{k-1} kept): own x, y (BA10, C02A, linear), the cells C0A4 / C0B2 (F_k's value
+  moved by the cells the lerped position is off, `(x + 16) >> 5` / `0x8000 - ((y + 16) >> 5)` as 39C4), altitude 2DF4 (linear), heading / pitch / roll
+  (2DEE / 2DF0 / 2DF2, shortest 16-bit arc), the cockpit camera matrix 2D94 (view_frame copies it to B156 in view 0): the matrix of the lerped angles
+  (`sim_matrix_from_angles`, as `fm_mat_from_euler`) plus the lerped residual of the integrated matrix against its own angles, so alpha 0 / 1 give exactly
+  F_{k-1} / F_k. Everything view_frame builds (B288, B752, B75C, DE98.., E44C, C07C, B770, B156) follows. Objects, the delayed view's pose ring, the target
+  views' objects, spinners and the HUD's digits stay A_k's (S4.2); the HUD lines (ladder, horizon, heading tape, ADI) are redrawn in every refresh from the
+  lerped attitude, because the refresh runs the whole frame.
+* **Hold** (every refresh of the frame at alpha 1 = the canonical frame k; only one refresh then): no previous frame (the first frame of a flight), the view
+  (C07A, [294B]) changed, the ejection / crash sequence ([C06E] != 0) or the mission ending ([E552]) in either frame, a jump (position > 1024 world units =
+  32 cells, altitude > 0x800, an angle > 0x4000: the pitch over the vertical flips heading and roll by 0x8000). Pause (Alt-P, `sim_pause_wait`): one refresh at
+  alpha 1 (A_k is still the paused frame's), held while paused. VGAME menus (quit requester, boss screen: `enh_menu`) use the live presenter as before.
+  A frame that loads a cockpit picture ([2E48] != [C07A], a view switch) is a **live frame**: the S3.4 path (its wide pass at alpha 1); the presenter keeps the
+  last refresh's picture until that frame is flipped, then shows the live page until the next stream frame's first refresh (so no black surround from a missing
+  wide picture; the original's 28-43 ms `screen_off` blank of a view switch is not shown with the stream on). `platform_exec` ends the stream when a program
+  returns (`enh_flight_end`).
+* **Must-not-change kept** (4.6): passes only in the `frame_floor` wait, `enh_frame_end` and the pause hook, never inside the canonical render (its `[262A]` /
+  `frame_delay` waits pump without passes, and the presenter shows no live page then); no geometry change inside a pass (S3.4 fix 3); the sim, sound, ticks and
+  input bytes are untouched (`sim_interp_equal`).
+* **Test aids**: `--fps-test K` (K refreshes per stream frame at alpha 1/K .. 1, run at once at the start of the wait, no clock: deterministic), `--fps-trace FILE`
+  (per refresh: frame, refresh, alpha, display ms, lerp, hold reason, view, the camera B288 / B752 / B75C and E44C / C07C / B770, the own fields), a `display:`
+  statistics line at exit (refreshes, per refresh cost by stage, steps late, presents and their cost).
+* **Measured** (2026-10-27, headless): `sim_interp_equal` 212 frames identical (canvas included) for `--fps off / --fps-test 4 / --fps 60 / vsync` and night +
+  smooth shading; `enh_fps_jerk` 321 own-camera frames x 4 refreshes: 0 uneven, 0 backward, worst 5.7 % of the mean step; real time 1280 x 720, N = 2: 4.7
+  refreshes per 100 ms step, alpha monotone, 0 backward steps. **Cost per refresh at 1920 x 1080, N = 4, wide** (canvas 1920 x 900): 29.2 ms (snapshot +
+  restore 4.2, wide render 14.5, main render 6.0, compose 4.5) -> about 22 refreshes a second in real time (vsync, 2.5 per step), 1 step late in 301; with
+  smooth shading + true night 73.5 ms (wide 43.0, main 17.9, compose 8.5) -> one refresh per step, 25 steps of 301 late. 60 Hz is not reachable with two
+  renders per refresh; S4.3 merges them and reuses the canonical render at alpha 1.
+
 ## 5 (d) Hooks, `--classic`, tests
 
 ### 5.1 `ENH:` hooks (each a guarded call of 1–3 lines; bodies live in `src/enhanced/`)
@@ -572,6 +619,11 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 | `r3d_face_list` | `render3d/r3d_object.c` | `hr_night_cond` (a lights condition holds), `hr_night_elem` (an element begins or is skipped) (2.12) | S3.6 |
 | `frame_loop_body` | `sim/sim_main.c` | `enh_frame_begin()` before `view_frame` | S2.4 |
 | `frame_floor` wait loop, `frame_delay` | `sim/sim_main.c` | `enh_idle()` → display pass; return at once in sandbox | S2.4, S4.1 |
+| `frame_floor` | `sim/sim_main.c` | `enh_display_wait(last + n)` per wait iteration, `enh_frame_end()` before the flip (4.8) | S4.1 |
+| `sim_pause_wait` | `sim/sim_input.c` | `enh_display_hold()` (the paused frame at alpha 1) | S4.1 |
+| `platform_exec` | `platform/startup.c` | `enh_flight_end()` (the stream stops with the program) | S4.1 |
+| `host_pump`, `present`, host helpers | `host.c` | `enh_display_ready` (present a refresh at once), `host_refresh_ns`, `host_tick_time_ns`, `host_present_stats` | S4.1 |
+| VGA look | `platform/vga.c` | `vga_look_get/set` (DAC, CRTC, attribute, sequencer) for the refresh's compose | S4.1 |
 | `sim_snd_cmd`, `sim_snd_noise` | `sim/sim_stubs.c` | no-op in sandbox | S2.4 |
 | `sim_snd_poll`, `host_pump`, `host_opl_write`, `dos_*`, `rtl_open/write`, `fopen_fn`, `unlink_fn`, `platform_load_file_paras` | `sim/sim_stubs.c`, `host.c`, `platform/dosio.c` | refused + counted in sandbox (`enh_sandbox_deny`) | S2.4 |
 | `host_wait_until_ns`, `vga_wait_vretrace_*` | `host.c`, `platform/vga.c` | return at once in sandbox | S2.4 |
@@ -594,7 +646,8 @@ no hook leaks into classic.
 | `r3d_hr_n1` | every render3d golden scene through the hr back end at N=1, fx=fy=0: 3D layer == the 1× page inside the viewport, byte for byte | S2.2/S2.3 |
 | `r3d_hr_ref` | N=2, 4: capture the hr polygons (`r3d_trace`), fill them with an independent pixel-centre reference filler; differences only within 1 layer px of an edge, summary count per scene | S2.3 |
 | `enh_sandbox_hash` | as built (4.7): the `debrief_chain_sea` chain on the virtual clock, plain / 3 test-view display passes per VGAME frame / `--classic`: per-frame hashes of DGROUP, comm, LCG, sound driver, OPL stream, `mem[]`, VGA, canvas identical (canvas not compared with classic), final comm block and roster identical, 0 forbidden calls | S2.4 |
-| `sim_interp_equal` | the same scenarios with N=4, wide, interp (3 display passes per step, alpha .25/.5/.75) vs `--classic`: DGROUP after every step and the comm block at the end identical | S4.1 |
+| `sim_interp_equal` | as built (4.8): the `enh_sandbox_hash` chain in a 1280 x 720 window, `--fps off` vs `--fps-test 4`, `--fps 60`, `--fps vsync`, and night + smooth with `--fps-test 3`: every frame hash (canvas included), final comm block, OPL stream, roster identical | S4.1 |
+| `enh_fps_jerk` | the real-path view sweep in banked flight, `--fps-test 4 --fps-trace`: own-camera steps even and never backward, holding frames one picture; a real-time `--fps 60` run: alpha monotone, no backward cockpit step | S4.1 |
 | `enh_wide_geometry`, `r3d_hr_wide`, `r3d_hr_wide_realpath`, `enh_sandbox_hash` (`--wide` run) | the placement per view and window; the golden scenes with a wide main pass (reference, gaps, hole, seams); the real-path view sweep at 16:9 / 21:9 (3.5) | S3.4 |
 | headless dumps | `--headless --enh-dump DIR` + `F117_KEYS` scripts: front cockpit (h 91/107), rear, left, right, 0x44, chase, TV, map; N=2/4; 4:3, 16:9, 21:9; plus mask PNGs → U1 | S2.3, S3.x |
 

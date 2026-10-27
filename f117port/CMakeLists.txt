@@ -218,6 +218,19 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(enh_sandbox_hash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900 PASS_REGULAR_EXPRESSION "enh_sandbox_hash OK")
 endif()
 
+# ENH: S4.1, the display stream (port/notes/e41/interp_equal.py). sim_interp_equal: the chain of enh_sandbox_hash in a wide window with --fps off, --fps-test 4,
+# --fps 60, --fps vsync (and night + smooth shading with --fps-test 3 against --fps off): every frame hash, the final comm block, OPL stream and roster identical.
+# enh_fps_jerk: the real-path view sweep in banked flight with --fps-test 4 --fps-trace: the camera of the own-aircraft views steps evenly between refreshes,
+# never backward, holding frames show one picture; then a real-time run with --fps 60 (alpha from the display clock).
+if(Python3_Interpreter_FOUND)
+    add_test(NAME sim_interp_equal COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/../port/notes/e41/interp_equal.py
+             $<TARGET_FILE:f117> ${CMAKE_CURRENT_SOURCE_DIR}/../Game ${CMAKE_CURRENT_BINARY_DIR}/enh_interp equal)
+    set_tests_properties(sim_interp_equal PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1500 PASS_REGULAR_EXPRESSION "sim_interp_equal OK")
+    add_test(NAME enh_fps_jerk COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/../port/notes/e41/interp_equal.py
+             $<TARGET_FILE:f117> ${CMAKE_CURRENT_SOURCE_DIR}/../Game ${CMAKE_CURRENT_BINARY_DIR}/enh_jerk jerk)
+    set_tests_properties(enh_fps_jerk PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1500 PASS_REGULAR_EXPRESSION "enh_fps_jerk OK")
+endif()
+
 # ENH: S3.4, the wider view. enh_wide_geometry: the placement of every view for 16:9, 21:9, 32:9, 4:3, 16:10, tall and small windows (no game files needed):
 # the first cockpit view and the outside views extended (frame bottom centre, viewport = canvas), the second cockpit view and left / right / rear not (frame centred).
 # r3d_hr_wide_realpath (port/notes/e34/wide_realpath.py): the scripted chain with a view sweep at 16:9 and 21:9, per view what the presented canvas shows

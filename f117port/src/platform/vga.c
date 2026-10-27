@@ -31,6 +31,18 @@ void vga_sandbox_regions(EnhRegionAdd add)
     add(&dac_windex, 1); add(&dac_wsub, 1); add(&dac_rindex, 1); add(&dac_rsub, 1); add(&dac_state, 1); add(dac_wbuf, sizeof dac_wbuf); add(&dirty, sizeof dirty);
 }
 
+/* ENH: S4.1, how the shown page looks (DAC, CRTC start / pitch, attribute pan, sequencer screen-off): a display pass composes its page with the live ones (DESIGN 4.2
+ * step 4), so the timer's DAC flicker and CRTC shake between two sim steps show as in the faithful frame */
+size_t vga_look_size(void) { return sizeof dac + sizeof crtc + sizeof attr + sizeof seq; }
+void vga_look_get(u8 *b)
+{
+    memcpy(b, dac, sizeof dac); b += sizeof dac; memcpy(b, crtc, sizeof crtc); b += sizeof crtc; memcpy(b, attr, sizeof attr); b += sizeof attr; memcpy(b, seq, sizeof seq);
+}
+void vga_look_set(const u8 *b)
+{
+    memcpy(dac, b, sizeof dac); b += sizeof dac; memcpy(crtc, b, sizeof crtc); b += sizeof crtc; memcpy(attr, b, sizeof attr); b += sizeof attr; memcpy(seq, b, sizeof seq);
+}
+
 /* 70.086 Hz: frame = 800 x 449 pixel clocks at 25.175 MHz (host.h: the same period as the timer tick);
  * retrace = lines 412..413. */
 #define FRAME_NUM VGA_FRAME_NS_NUM

@@ -51,6 +51,9 @@ bool host_quit_requested(void);              /* window closed: the chain loop st
 
 /* Nanoseconds since host_init (the time base of the tick clock and of the VGA retrace model). */
 uint64_t host_ns(void);
+uint64_t host_tick_time_ns(uint64_t tick);   /* ENH: S4.1, when tick number `tick` is due, on the host_ns() scale */
+uint64_t host_refresh_ns(void);              /* ENH: S4.1, the refresh period of the window's display (60 Hz when unknown or headless) */
+void host_present_stats(uint64_t *n, uint64_t *ns);   /* ENH: S4.1, presents so far and the time spent in them (texture upload + present) */
 /* Pumps until host_ns() >= t. */
 void host_wait_until_ns(uint64_t t);
 

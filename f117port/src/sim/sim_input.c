@@ -6,6 +6,7 @@
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
 #include "enhanced/enh_canvas.h"   /* ENH: S3.4 */
+#include "enhanced/sandbox.h"      /* ENH: S4.1 */
 
 /* ------------------------------------------------------------------------------------------------------ keypad as stick */
 
@@ -84,6 +85,7 @@ void keypad_stick_remove(void) { kbd_set_int9_hook(NULL); }
 void sim_pause_wait(void)
 {
     sim_snd_cmd(0x19, 0, 0, 0);
+    enh_display_hold();                  /* ENH: S4.1, the paused frame shown as the faithful one (alpha 1) */
     u16 save = DSW(0x2646);
     int k;
     do {

@@ -85,10 +85,10 @@ def main():
         print('no game files')
         return 77
     os.makedirs(work, exist_ok=True)
-    a = run(exe, game, work, 'base', '')
+    a = run(exe, game, work, 'base', '--fps off')                   # S4.1: no display refresh in these runs (sim_interp_equal tests the stream)
     if a is None:
         return 1
-    b = run(exe, game, work, 'test', '--sandbox-test %d' % k)
+    b = run(exe, game, work, 'test', '--sandbox-test %d --fps off' % k)
     if b is None:
         return 1
     fa, fb = a['frames'], b['frames']
@@ -122,7 +122,7 @@ def main():
     if len(c['frames']) != len(fa) or re.sub(r' passes=\d+ violations=\d+', '', c['final']) != fin_a or c['roster'] != a['roster']:
         print('enh_sandbox_hash FAILED: --classic ends differently (%d frames, %s)' % (len(c['frames']), c['final']))
         return 1
-    w = run(exe, game, work, 'wide', '--wide', window='1280x720')   # S3.4: the wide display passes leave the sim as it is
+    w = run(exe, game, work, 'wide', '--wide --fps off', window='1280x720')   # S3.4: the wide display passes leave the sim as it is
     if w is None:
         return 1
     for i, (la, lw_) in enumerate(zip(fa, w['frames'])):

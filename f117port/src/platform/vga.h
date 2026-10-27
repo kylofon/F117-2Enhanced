@@ -46,6 +46,9 @@ void vga_dac_get(u8 index, u8 *r, u8 *g, u8 *b);
 u16  vga_start(void);                        /* CRTC start address (planar bytes) */
 u16  vga_shown_seg(void);
 void vga_compose_13(u32 *xrgb320x200);          /* mode 13h as shown (CRTC start, pan, DAC) as XRGB: the faithful frame */
+size_t vga_look_size(void);                     /* ENH: S4.1, DAC + CRTC + attribute + sequencer (how the shown page looks), for a display pass */
+void vga_look_get(u8 *buf);
+void vga_look_set(const u8 *buf);
 bool vga_shown_frame(u8 *idx64000, u16 *page_off64000, u32 *pal256);   /* ENH: the same as indices, for the compositor */                    /* A000 + start / 16: the page being displayed */
 
 /* Vertical retrace (3DAh bit 3) model and the waits that replace the original's polling loops. */

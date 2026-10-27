@@ -21,6 +21,10 @@ typedef struct {
                           * gradient in the compositor (DESIGN 2.11); ignored with --classic */
     bool true_night;     /* --true-night / --no-true-night (S3.6, default off): in night missions the 3D world (sky, ground, objects) much darker by distance, lights kept
                           * (DESIGN 2.12); ignored with --classic */
+    int  fps;            /* --fps vsync|60|30|off (S4.1, default vsync = -1; 0 = off, the S3.4 path: one picture per sim step): display passes per monitor refresh
+                          * in the frame_floor wait, the own aircraft and the camera interpolated between the last two sim steps (DESIGN 4.8); off with --classic */
+    int  fps_test;       /* --fps-test K (S4.1 test aid): K display passes per VGAME frame at alpha 1/K .. K/K, run at once (no clock), instead of the refresh timing */
+    char fps_trace[1024];      /* --fps-trace FILE (S4.1 test aid): per display pass the frame, alpha, hold reason and the camera view_frame built (the jerk trace) */
     char mfd_probe[1024];      /* --mfd-probe PREFIX (S3.2 test aid): per page flip PREFIX.txt gets how much of the TV and map windows is shown from the 3D layer; F117_PROBE_FRAMES=a,b dumps those frames */
 } EnhOptions;
 
@@ -36,5 +40,7 @@ bool enh_sandbox_on(void);
 bool enh_smooth_on(void);
 /* S3.6: true night wanted (--true-night, the canvas on, not --classic / F117_CLASSIC). */
 bool enh_true_night_on(void);
+/* S4.1: display passes per refresh wanted (--fps not off or --fps-test, the canvas on, not --classic / F117_CLASSIC). */
+bool enh_fps_on(void);
 /* Options from the environment variable F117_ENH_ARGS (for test drivers that build their own command line); once. */
 void enh_env_args(void);

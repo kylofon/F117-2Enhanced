@@ -33,3 +33,13 @@ void enh_opl_trace(u8 reg, u8 val);                     /* host.c host_opl_write
 
 /* One display pass now (from enh_idle; needs a valid A_k). v > 0: the test view v of --sandbox-test (sandbox.c test_view). */
 void enh_display_pass(int v);
+
+/* S4.1, the display stream (DESIGN 4.1, 4.8): with --fps on, a VGAME frame that loads no cockpit picture is shown only by display passes: one display refresh
+ * (the wide pass when the view is extended, then the main pass, both on A_k with the fields at alpha, composed with the live DAC / CRTC) per monitor refresh
+ * in the frame_floor wait, alpha = (display clock - last flip) / step period. The presenter shows their pictures (enh_display_take), never the live page. */
+void enh_display_wait(u64 deadline_tick);              /* sim_main.c frame_floor wait loop: a refresh when one is due and fits before the step is due */
+void enh_frame_end(void);                               /* sim_main.c frame_floor, just before the flip: a frame without a refresh gets one; the flip time */
+void enh_display_hold(void);                            /* sim_input.c sim_pause_wait: the paused frame at alpha 1 */
+void enh_flight_end(void);                              /* platform/startup.c platform_exec: a program ended, the stream stops */
+int  enh_display_take(u32 *out);                        /* enh_compose_vga: -1 = no stream (compose the live page), 0 = no new picture, 1 = the newest copied into out */
+bool enh_display_ready(void);                           /* host_pump: a new picture waits (present it now) */

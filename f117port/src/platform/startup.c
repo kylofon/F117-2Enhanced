@@ -14,6 +14,7 @@
 #include "host.h"
 #include "platform/platform.h"
 #include "platform/timer.h"
+#include "enhanced/sandbox.h"      /* ENH: S4.1 */
 
 ProgId plat_prog;
 static ProgImage plat_img;
@@ -225,6 +226,7 @@ int platform_exec(ProgId id, ProgMain main, const char *tail)
     if (setjmp(exit_jmp) == 0) code = main(tail);
     else code = exit_code;
     in_exec = false;
+    enh_flight_end();                    /* ENH: S4.1, the display stream (if any) stops with the program */
 
     program_cleanup();
     if (loaded) prog_image_free(&img);

@@ -409,11 +409,12 @@ void sim_init(void)
 static void frame_floor(void)
 {
     static u64 last;
-    enh_idle();                                          /* ENH: S2.4, display passes (S4.1: one per refresh in the wait below) */
+    enh_idle();                                          /* ENH: S2.4, display passes (S3.4: the wide pass) */
     int n = host_frame_ticks();
-    if (n <= 0 || sim_test.active) return;
-    while (host_ticks() - last < (u64)n && !host_quit_requested()) { enh_idle(); host_pump(); }   /* ENH: S2.4 */
+    if (n <= 0 || sim_test.active) { enh_frame_end(); return; }   /* ENH: S4.1 */
+    while (host_ticks() - last < (u64)n && !host_quit_requested()) { enh_display_wait(last + (u64)n); host_pump(); }   /* ENH: S4.1, a display refresh when one is due */
     last = host_ticks();
+    enh_frame_end();                                     /* ENH: S4.1, the flip time (and a refresh if the wait had none) */
 }
 
 /* PORT, test aid of the scripted chain run (F117_VGAME_DIVE=N, ctest debrief_chain_sea): after N frames the aircraft is put in a
