@@ -218,11 +218,12 @@ static void fill(u8 c)
             s64 L = tl[y], R = tr[y];
             if (!(R < L || (R == L && (R == 0 || R == last)))) {
                 s32 py = enh_hr.oy + y;
-                if (py >= 0 && py < enh_hr.lh)
-                    for (s64 x = L; x <= R; x++) {
-                        s64 px = enh_hr.ox + x;
-                        if (px >= 0 && px < enh_hr.lw) hr_put((s32)px, py, c);
-                    }
+                if (py >= 0 && py < enh_hr.lh) {                          /* S4.3: one span (= hr_put of each x with 0 <= ox + x < lw) */
+                    s64 a = enh_hr.ox + L, b = enh_hr.ox + R;
+                    if (a < 0) a = 0;
+                    if (b > enh_hr.lw - 1) b = enh_hr.lw - 1;
+                    if (a <= b) hr_put_span(py, (s32)a, (s32)b, c);
+                }
             }
         }
         y--;

@@ -24,6 +24,7 @@ typedef struct {
     int  fps;            /* --fps vsync|60|30|off (S4.1, default vsync = -1; 0 = off, the S3.4 path: one picture per sim step): display passes per monitor refresh
                           * in the frame_floor wait, the own aircraft and the camera interpolated between the last two sim steps (DESIGN 4.8); off with --classic */
     int  fps_test;       /* --fps-test K (S4.1 test aid): K display passes per VGAME frame at alpha 1/K .. K/K, run at once (no clock), instead of the refresh timing */
+    int  fps_check;      /* --fps-check (S4.3 test aid): every refresh is also built the S4.1 way (wide pass + main pass) and the two pictures compared */
     char fps_trace[1024];      /* --fps-trace FILE (S4.1 test aid): per display pass the frame, alpha, hold reason and the camera view_frame built (the jerk trace) */
     char mfd_probe[1024];      /* --mfd-probe PREFIX (S3.2 test aid): per page flip PREFIX.txt gets how much of the TV and map windows is shown from the 3D layer; F117_PROBE_FRAMES=a,b dumps those frames */
 } EnhOptions;

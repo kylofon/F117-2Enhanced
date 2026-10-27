@@ -90,6 +90,84 @@ static inline int phase(s32 x, s32 y)
     return (int)((fdiv(dx, enh_hr.n) ^ fdiv(dy, enh_hr.n)) & 1);
 }
 
+/* S4.3: a run of hr_put on row y, x = l..r (clipped by the caller), colour `ah` where phase(x, y) is 1 and `al` elsewhere (dith: false = al everywhere;
+ * only_ah: the pixels of phase 0 are left as they are); the same layer and night values as hr_put pixel by pixel, written a row at a time */
+static void span_run(s32 y, s32 l, s32 r, u8 al, u8 ah, bool dith, bool only_ah)
+{
+    if (l > r) return;
+    if (enh_hr.hole && y >= enh_hr.hole_y && r >= enh_hr.hole_x0 && l <= enh_hr.hole_x1) {   /* S3.4: the panel hole is never written */
+        span_run(y, l, enh_hr.hole_x0 - 1, al, ah, dith, only_ah);
+        span_run(y, enh_hr.hole_x1 + 1, r, al, ah, dith, only_ah);
+        return;
+    }
+    const size_t at = (size_t)y * enh_hr.lw;
+    u16 *row = enh_hr.layer + at;
+    u8 *nrow = enh_hr.night ? enh_hr.night + at : NULL;
+    const u16 base = (u16)(0x100 | put_code);
+    const u16 vl = (u16)(base | al), vh = (u16)(base | ah);
+    if (!dith || (al == ah && !only_ah)) {
+        for (s32 x = l; x <= r; x++) row[x] = vl;
+    } else if (enh_hr.fine) {
+        const s32 dy = y - enh_hr.fy;
+        for (s32 x = l; x <= r; x++) {
+            const int ph = (int)(((x - enh_hr.fx) ^ dy) & 1);
+            if (ph) row[x] = vh; else if (!only_ah) row[x] = vl;
+        }
+    } else {
+        const int n = enh_hr.n, py = (int)(fdiv(y - enh_hr.fy, n) & 1);
+        s32 x = l;
+        while (x <= r) {
+            const s32 bx = fdiv(x - enh_hr.fx, n);               /* the original pixel column of x and where it ends */
+            s32 e = enh_hr.fx + (bx + 1) * n - 1;
+            if (e > r) e = r;
+            const int ph = (int)((bx ^ py) & 1);
+            if (ph) for (s32 k = x; k <= e; k++) row[k] = vh;
+            else if (!only_ah) for (s32 k = x; k <= e; k++) row[k] = vl;
+            x = e + 1;
+        }
+    }
+    if (!nrow) return;                                     /* S3.6: the night factor of every pixel written */
+    if (put_night == HR_NM_OBJ || only_ah) {
+        for (s32 x = l; x <= r; x++)
+            if (!only_ah || phase(x, y)) nrow[x] = put_night == HR_NM_OBJ ? hr_night_obj(x, y) : put_night == HR_NM_LIT ? HR_NIGHT_LIT : put_night == HR_NM_KEEP ? put_keep : 0;
+    } else {
+        const u8 v = put_night == HR_NM_LIT ? HR_NIGHT_LIT : put_night == HR_NM_KEEP ? put_keep : 0;
+        memset(nrow + l, v, (size_t)(r - l + 1));
+    }
+}
+
+/* S4.3: the AND (FEh) / OR (FDh) fill of row y, x = l..r: per pixel v = hr_get(x, y), nv = v & al / v | al, the S3.5 blend code and the S3.6 factor of the
+ * written pixel under it kept, then hr_put(x, y, nv) (nothing in the panel hole) */
+static void span_andor(s32 y, s32 l, s32 r, u8 al, bool is_and)
+{
+    const size_t at = (size_t)y * enh_hr.lw;
+    u16 *row = enh_hr.layer + at;
+    u8 *nrow = enh_hr.night ? enh_hr.night + at : NULL;
+    const int n = enh_hr.n;
+    const s32 py = fdiv(y - enh_hr.fy, n);
+    const u8 *page = py >= 0 && py <= 199 ? seg_ptr(enh_hr.seg) + py * 320 : NULL;
+    const bool hole_row = enh_hr.hole && y >= enh_hr.hole_y;
+    s32 px = fdiv(l - enh_hr.fx, n), k = (l - enh_hr.fx) - px * n;   /* the original pixel of x and x's place in it (0..n-1) */
+    for (s32 x = l; x <= r; x++) {
+        if (!(hole_row && x >= enh_hr.hole_x0 && x <= enh_hr.hole_x1)) {
+            const u16 old = row[x];
+            u8 v;
+            if (old & 0x100) v = (u8)old;
+            else v = page && px >= 0 && px <= 319 ? page[px] : 0;
+            const u8 nv = is_and ? (u8)(v & al) : (u8)(v | al);
+            const u16 code = (old & 0x100) && nv >= 0x60 ? (u16)(old & HR_BLEND_MASK) : 0;
+            row[x] = (u16)(0x100 | nv | code);
+            if (nrow) {
+                const u8 keep = (old & 0x100) ? nrow[x] : 0;
+                nrow[x] = keep && keep != HR_NIGHT_LIT ? keep : hr_night_obj(x, y);
+            }
+        }
+        if (++k == n) { k = 0; px++; }
+    }
+}
+
+void hr_put_span(s32 y, s32 l, s32 r, u8 c) { span_run(y, l, r, c, c, false, false); }
+
 /* ---------------------------------------------------------------- 1359:0719 edge_dda */
 
 static inline bool row_ok(s32 r) { return r >= 0 && r < tab_rows; }
@@ -211,27 +289,17 @@ void hr_fill(u16 colour)
         put_night = hr_night_mode(false, al);                            /* S3.6 */
         if (!spans_begin(&sp, false)) { put_code = 0; put_night = 0; return; }
         while (spans_next(&sp, &y, &l, &r))
-            for (s32 x = l; x <= r; x++) hr_put(x, y, phase(x, y) ? ah : al);
+            span_run(y, l, r, al, ah, true, false);                       /* S4.3: = hr_put(x, y, phase(x, y) ? ah : al) for x = l..r */
         put_code = 0; put_night = 0;
     } else if (ah == 0xFE || ah == 0xFD) {
         if (!spans_begin(&sp, false)) return;
-        while (spans_next(&sp, &y, &l, &r))
-            for (s32 x = l; x <= r; x++) {
-                u8 v = hr_get(x, y);
-                u8 nv = ah == 0xFE ? (u8)(v & al) : (u8)(v | al);
-                const u16 old = enh_hr.layer[(size_t)y * enh_hr.lw + x];   /* S3.5: the ground ramps keep the band position (AND 7Fh / 6Fh, OR 80h) */
-                put_code = (old & 0x100) && nv >= 0x60 ? (u16)(old & HR_BLEND_MASK) : 0;
-                put_keep = enh_hr.night && (old & 0x100) ? enh_hr.night[(size_t)y * enh_hr.lw + x] : 0;   /* S3.6: the factor of the ground under it */
-                put_night = put_keep && put_keep != HR_NIGHT_LIT ? HR_NM_KEEP : enh_hr.night ? HR_NM_OBJ : HR_NM_NONE;
-                hr_put(x, y, nv);
-            }
+        while (spans_next(&sp, &y, &l, &r)) span_andor(y, l, r, al, ah == 0xFE);   /* S4.3: a row at a time (the same pixels as hr_get / hr_put per x) */
         put_code = 0; put_night = 0;
     } else if (ah == 0xFC) {
         if (!spans_begin(&sp, true)) return;
         put_night = hr_night_mode(false, al);                            /* S3.6 */
         while (spans_next(&sp, &y, &l, &r))
-            for (s32 x = l; x <= r; x++)
-                if (phase(x, y)) hr_put(x, y, al);
+            span_run(y, l, r, 0, al, true, true);                         /* S4.3: = if (phase(x, y)) hr_put(x, y, al) for x = l..r */
         put_night = 0;
     } else {                                                /* FBh: clear only */
         if (!spans_begin(&sp, false)) return;

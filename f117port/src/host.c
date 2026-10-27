@@ -341,6 +341,7 @@ static void present(void)
     SDL_RenderTexture(renderer, texture, NULL, &dst);
     SDL_RenderPresent(renderer);
     pres_ns += SDL_GetTicksNS() - t0; pres_n++;           /* ENH: S4.1 */
+    enh_present_done(SDL_GetTicksNS() - t0);              /* ENH: S4.3, the present stage */
 }
 
 static Uint64 last_present_ns;

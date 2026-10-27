@@ -59,6 +59,7 @@ int enh_parse_arg(int argc, char **argv, int i)
         if (!enh.classic) enh.fps_test = k < 0 ? 0 : k > 64 ? 64 : k;
         return 2;
     }
+    if (!strcmp(argv[i], "--fps-check")) { if (!enh.classic) enh.fps_check = 1; return 1; }   /* S4.3 test aid */
     if (!strcmp(argv[i], "--fps-trace") && i + 1 < argc) { if (!enh.classic) snprintf(enh.fps_trace, sizeof enh.fps_trace, "%s", argv[i + 1]); return 2; }
     if (!strcmp(argv[i], "--compose-test")) { enh.compose_test = 1; return 1; }
     if (!strcmp(argv[i], "--wide-geometry-test")) { enh.compose_test = 2; return 1; }

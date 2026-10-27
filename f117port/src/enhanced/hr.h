@@ -143,6 +143,7 @@ void hr_fill(u16 colour);                          /* fill_M on the row tables *
 void hr_draw_line(s32 x0, s32 y0, s32 x1, s32 y1, u8 c);   /* line_M with the wide brush */
 void hr_draw_line_shaded(s32 x0, s32 y0, s32 x1, s32 y1, u16 colour);   /* S3.5: line_M with the blend code of a shaded colour word */
 void hr_put(s32 x, s32 y, u8 c);                   /* one layer pixel (no clip) */
+void hr_put_span(s32 y, s32 l, s32 r, u8 c);       /* S4.3: hr_put(x, y, c) for x = l..r (no clip) */
 u8   hr_get(s32 x, s32 y);                         /* the layer pixel, or the page pixel under it when not written */
 s32 *hr_tab_l(void);
 s32 *hr_tab_r(void);

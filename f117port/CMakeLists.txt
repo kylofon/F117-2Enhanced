@@ -231,6 +231,15 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(enh_fps_jerk PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1500 PASS_REGULAR_EXPRESSION "enh_fps_jerk OK")
 endif()
 
+# ENH: S4.3, one render per display refresh (port/notes/e43/one_render.py): --fps-check builds every refresh the S4.1 way (wide pass + main pass) and the S4.3
+# way (the wide pass alone; at alpha 1 in a view that is not extended, the canonical render without a pass) and compares the pictures pixel by pixel: the view
+# sweep, night + smooth shading, --no-wide (reuse) day and night; then the 30 Hz fallback in real time with every pass made 20 ms slower (F117_TEST_REFRESH_MS).
+if(Python3_Interpreter_FOUND)
+    add_test(NAME enh_one_render COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/../port/notes/e43/one_render.py
+             $<TARGET_FILE:f117> ${CMAKE_CURRENT_SOURCE_DIR}/../Game ${CMAKE_CURRENT_BINARY_DIR}/enh_one_render)
+    set_tests_properties(enh_one_render PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1500 PASS_REGULAR_EXPRESSION "enh_one_render OK")
+endif()
+
 # ENH: S3.4, the wider view. enh_wide_geometry: the placement of every view for 16:9, 21:9, 32:9, 4:3, 16:10, tall and small windows (no game files needed):
 # the first cockpit view and the outside views extended (frame bottom centre, viewport = canvas), the second cockpit view and left / right / rear not (frame centred).
 # r3d_hr_wide_realpath (port/notes/e34/wide_realpath.py): the scripted chain with a view sweep at 16:9 and 21:9, per view what the presented canvas shows

@@ -5,6 +5,7 @@
  * Objects (1088:0120): the continuous shade of the object being drawn (E7AC, or its DDFE record at DF08), turned into a code for each shaded fill / line.
  * Nothing here writes mem[], the page or the VGA model: only hr state and the layer's bits 10..15. */
 #include "enhanced/hr.h"
+#include "enhanced/par.h"
 
 #include <math.h>
 #include <string.h>
@@ -99,26 +100,21 @@ u16 hr_shade_code(u16 colour)
 
 /* ---------------------------------------------------------------- the bands */
 
-void hr_band_blend(s16 H, const s16 *sky, const s16 *gnd)
+/* S4.3: lround (half away from zero) without the library call: v - trunc(v) is exact for |v| < 2^52 */
+static inline int round_half_away(double v)
 {
-    if (!hr_smooth || !enh_hr.on || !enh_hr.layer) return;
-    double T[2][17], W[2][16];
-    for (int g = 0; g < 2; g++) {
-        for (int i = 0; i <= 16; i++)
-            T[g][i] = g ? (i < 16 ? (s16)(H - gnd[i]) : (s16)0xA7B8) : (i < 16 ? (s16)(sky[i] + H) : 0x5848);
-        for (int i = 0; i < 15; i++) W[g][i] = T[g][i + 1] - T[g][i];
-        W[g][15] = W[g][14];                                          /* band 15 runs to +-22600: the width of band 14 */
-    }
-    const double N = enh_hr.n;
-    const double sn = (double)(s16)(u16)-DSW(0x498A) / 32768.0, cs = (double)(s16)DSW(0x498C) / 32768.0;
-    const double w2 = (s16)DSW(0x0D1E), h2 = (s16)DSW(0x0D20);
-    const double ox = (double)enh_hr.ox + enh_hr.e2dx, oy = (double)enh_hr.oy + enh_hr.e2dy;
-    const double ax = -sn / N, ay = -cs * (4.0 / 3.0) / N;           /* t = ax X + ay Y + c0 (layer px) */
-    const double c0 = sn * (ox / N + w2) + cs * (4.0 / 3.0) * (oy / N + h2);
-    for (s32 y = enh_hr.ymin; y <= enh_hr.ymax; y++) {
-        if (y < 0 || y >= enh_hr.lh) continue;
+    const double t = (double)(long long)v, r = v - t;
+    return (int)(r >= 0.5 ? t + 1 : r <= -0.5 ? t - 1 : t);
+}
+
+typedef struct { double T[2][17], W[2][16], ax, ay, c0; } BandJob;
+
+static void band_rows(void *jp, int lo, int hi)
+{
+    const BandJob *j = jp;
+    for (s32 y = lo; y < hi; y++) {
         u16 *row = enh_hr.layer + (size_t)y * enh_hr.lw;
-        const double ty = ay * y + c0;
+        const double ty = j->ay * y + j->c0;
         for (s32 x = enh_hr.xmin < 0 ? 0 : enh_hr.xmin; x <= enh_hr.xmax && x < enh_hr.lw; x++) {
             const u16 l = row[x];
             if ((l & 0x300) != 0x100 || HR_IN_HOLE(x, y)) continue;   /* written by the hr back end, not stamped; S3.4: not the panel hole (other passes' pixels) */
@@ -128,14 +124,34 @@ void hr_band_blend(s16 H, const s16 *sky, const s16 *gnd)
             else if (c >= 0x70 && c <= 0x7F) g = 1;
             else continue;
             const int i = c & 15;
-            const double w = W[g][i];
+            const double w = j->W[g][i];
             if (!(fabs(w) >= 0.5)) continue;                          /* a band of no width (the ground at low altitude) */
-            double f = (ax * x + ty - T[g][i]) / w;
+            double f = (j->ax * x + ty - j->T[g][i]) / w;
             if (f < 0) f = 0;
             if (f > 1) f = 1;
             double d = f - 0.5;
             if ((i == 0 && d < 0) || (i == 15 && d > 0)) d = 0;
-            row[x] = (u16)((l & 0x3FF) | hr_blend_code((int)lround(d * 64)));
+            row[x] = (u16)((l & 0x3FF) | hr_blend_code(round_half_away(d * 64)));
         }
     }
+}
+
+void hr_band_blend(s16 H, const s16 *sky, const s16 *gnd)
+{
+    if (!hr_smooth || !enh_hr.on || !enh_hr.layer) return;
+    BandJob j;
+    for (int g = 0; g < 2; g++) {
+        for (int i = 0; i <= 16; i++)
+            j.T[g][i] = g ? (i < 16 ? (s16)(H - gnd[i]) : (s16)0xA7B8) : (i < 16 ? (s16)(sky[i] + H) : 0x5848);
+        for (int i = 0; i < 15; i++) j.W[g][i] = j.T[g][i + 1] - j.T[g][i];
+        j.W[g][15] = j.W[g][14];                                      /* band 15 runs to +-22600: the width of band 14 */
+    }
+    const double N = enh_hr.n;
+    const double sn = (double)(s16)(u16)-DSW(0x498A) / 32768.0, cs = (double)(s16)DSW(0x498C) / 32768.0;
+    const double w2 = (s16)DSW(0x0D1E), h2 = (s16)DSW(0x0D20);
+    const double ox = (double)enh_hr.ox + enh_hr.e2dx, oy = (double)enh_hr.oy + enh_hr.e2dy;
+    j.ax = -sn / N; j.ay = -cs * (4.0 / 3.0) / N;                     /* t = ax X + ay Y + c0 (layer px) */
+    j.c0 = sn * (ox / N + w2) + cs * (4.0 / 3.0) * (oy / N + h2);
+    const s32 y0 = enh_hr.ymin < 0 ? 0 : enh_hr.ymin, y1 = enh_hr.ymax < enh_hr.lh - 1 ? enh_hr.ymax : enh_hr.lh - 1;
+    if (y1 >= y0) enh_par_for_from(y0, y1 + 1, band_rows, &j);       /* S4.3: rows on the worker pool (each pixel depends only on itself) */
 }

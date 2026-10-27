@@ -104,9 +104,52 @@ static unsigned long long n_refresh, n_refresh_lerp, n_frames_stream, n_steps_la
 static unsigned long long ns_r_wide, ns_r_main, ns_r_snap, ns_r_compose, ns_r_total, ns_r_max;
 static Uint64 stream_t0, stream_t1;          /* display clock at the first / last stream frame */
 
+static unsigned long long chk_refresh, chk_diff_refresh, chk_diff_px, n_reused, n_begin_refresh;
+static unsigned long long n_rate_switch, n_refresh_div[4];   /* S4.3: the rate fallback (defined with rate_update) */
+static Uint64 base_period(void);
+static double est_cost;   /* S4.3 --fps-check */
+
+/* S4.3: per refresh samples of each stage, for the average and the 95th percentile at exit (the display-stages line) */
+enum { ST_SNAP, ST_RENDER, ST_COMPOSE, ST_TOTAL, ST_TAKE, ST_PRESENT, ST_N };
+static const char *const st_name[ST_N] = { "snapshot", "render", "compose", "refresh", "take", "present" };
+#define ST_CAP 65536
+static u32 *st_s[ST_N];
+static unsigned st_n[ST_N];
+static unsigned long long st_sum[ST_N];
+
+void enh_stage_sample(int st, u64 ns)
+{
+    if (st < 0 || st >= ST_N) return;
+    st_sum[st] += ns;
+    if (!st_s[st]) st_s[st] = malloc(ST_CAP * sizeof(u32));
+    if (st_s[st] && st_n[st] < ST_CAP) st_s[st][st_n[st]] = ns > 0xFFFFFFFFull ? 0xFFFFFFFFu : (u32)ns;
+    st_n[st]++;
+}
+
+static int cmp_u32(const void *a, const void *b) { const u32 x = *(const u32 *)a, y = *(const u32 *)b; return x < y ? -1 : x > y; }
+
+static void report_stages(FILE *f)
+{
+    if (!st_n[ST_TOTAL]) return;
+    fprintf(f, "display-stages (ms avg / p95):");
+    for (int i = 0; i < ST_N; i++) {
+        if (!st_n[i]) continue;
+        const unsigned m = st_n[i] < ST_CAP ? st_n[i] : ST_CAP;
+        qsort(st_s[i], m, sizeof(u32), cmp_u32);
+        fprintf(f, " %s %.2f / %.2f (%u);", st_name[i], st_sum[i] / (double)st_n[i] / 1e6, st_s[i][(size_t)((m - 1) * 0.95)] / 1e6, st_n[i]);
+    }
+    fprintf(f, "\n");
+}
+
 static void report_display(FILE *f)
 {
     if (!n_refresh) return;
+    report_stages(f);
+    fprintf(f, "display-rate: refreshes at every display period %llu, every 2nd %llu, every 3rd or later %llu; rate switches %llu; pass cost EMA %.2f ms; display period %.2f ms\n",
+            n_refresh_div[1], n_refresh_div[2], n_refresh_div[3], n_rate_switch, est_cost / 1e6, (double)base_period() / 1e6);
+    fprintf(f, "display-begin: %llu refreshes at a frame start\n", n_begin_refresh);
+    fprintf(f, "display-reuse: %llu refreshes showed the canonical render (alpha 1, not extended)\n", n_reused);
+    if (enh.fps_check) fprintf(f, "fps-check: %llu refreshes compared, %llu differ, %llu pixels differ\n", chk_refresh, chk_diff_refresh, chk_diff_px);
     const double r = (double)n_refresh, secs = stream_t1 > stream_t0 ? (double)(stream_t1 - stream_t0) / 1e9 : 0;
     u64 pn = 0, pns = 0;
     host_present_stats(&pn, &pns);
@@ -194,7 +237,7 @@ static void hash_line(void)
 
 /* ---------------------------------------------------------------- hooks */
 
-typedef enum { PASS_TEST, PASS_WIDE_FRAME, PASS_WIDE_DISP, PASS_MAIN_DISP } PassKind;
+typedef enum { PASS_TEST, PASS_WIDE_FRAME, PASS_WIDE_DISP, PASS_MAIN_DISP, PASS_DISP } PassKind;   /* PASS_DISP (S4.3): the one pass of a refresh */
 static void display_pass(int v, double alpha, PassKind kind);
 
 static bool stream;            /* S4.1: this frame is shown by display refreshes (--fps on, no cockpit picture load) */
@@ -207,6 +250,13 @@ static u32 *disp;              /* the newest display picture (disp_cv), new = no
 static size_t disp_cap;
 static EnhCanvas disp_cv;
 static bool disp_new;
+static bool disp_presented;    /* S4.3: the picture host_pump presents next is a display picture (its present cost is a stage) */
+
+void enh_present_done(u64 ns)
+{
+    if (disp_presented) enh_stage_sample(ST_PRESENT, ns);
+    disp_presented = false;
+}
 static u8 *look_live;          /* the live DAC / CRTC / attribute / sequencer while a refresh's main pass composes */
 static Uint64 t_flip, flip_ema, t_last_refresh;   /* display clock (ns) */
 static double est_cost;        /* ns a refresh takes (EMA) */
@@ -225,6 +275,8 @@ static Uint64 dclock(void)
 static int frame_passes;
 static int enh_test_night(void) { static int v = -1; if (v < 0) { const char *e = getenv("F117_TEST_NIGHT"); v = e && (*e == '1' || *e == '2') ? *e - '0' : 0; } return enh.classic ? 0 : v; }
 static bool wide_due;          /* S3.4: this frame gets a wide display pass */
+
+static void frame_begin_refresh(void);
 
 void enh_frame_begin(void)
 {
@@ -288,9 +340,10 @@ void enh_frame_begin(void)
     img_a.valid = image_save(&img_a) && enh_canvas_snap_take(&img_a.cv);
     ns_take += SDL_GetTicksNS() - t0;
     n_takes++;
+    if (stream) frame_begin_refresh();                        /* S4.3 */
 }
 
-static void refresh(double alpha);
+static void refresh(double alpha, bool before_flip);
 
 void enh_idle(void)
 {
@@ -304,16 +357,35 @@ void enh_idle(void)
         display_pass(0, 1.0, PASS_WIDE_FRAME);
     }
     if (stream && enh.fps_test > 0 && frame_refreshes == 0)  /* S4.1 test aid: K refreshes at alpha 1/K .. 1, no clock */
-        for (int j = 1; j <= enh.fps_test; j++) refresh((double)j / enh.fps_test);
+        for (int j = 1; j <= enh.fps_test; j++) refresh((double)j / enh.fps_test, true);
 }
 
 /* ---------------------------------------------------------------- S4.1: the display stream */
 
 /* the time from one refresh to the next: the display's refresh period (vsync) or 1/60, 1/30 s, less 1.5 ms so that VSync, not this timer, decides (AotP) */
+static int rate_div = 1;               /* S4.3: refresh every rate_div-th display period (the fallback when a refresh does not fit one period) */
+/* S4.3 test aid (F117_TEST_REFRESH_MS=X): every pass refresh takes X ms longer (busy), as on a slower machine: the 30 Hz fallback must engage */
+static Uint64 test_cost_ns(void) { static double v = -1; if (v < 0) { const char *e = getenv("F117_TEST_REFRESH_MS"); v = e && *e ? atof(e) : 0; } return (Uint64)(v * 1e6); }
+
+static Uint64 base_period(void) { return enh.fps == 60 ? 16666667ull : enh.fps == 30 ? 33333333ull : host_refresh_ns(); }
+
 static Uint64 refresh_interval(void)
 {
-    const Uint64 p = enh.fps == 60 ? 16666667ull : enh.fps == 30 ? 33333333ull : host_refresh_ns();
+    const Uint64 p = base_period() * (Uint64)rate_div;
     return p > 5500000ull ? p - 1500000ull : 4000000ull;
+}
+
+/* S4.3: the budget. A refresh (pass + compose; the presenter's copy and the present come on top) must take less than 3/4 of its interval, or the display
+ * misses VSyncs at uneven times (judder): then refreshes go to every 2nd period (60 Hz -> 30 Hz; on a faster monitor the smallest divisor that fits, not below
+ * ~30 Hz); back to the faster rate when the cost is under half of it. Decided from the EMA of the pass cost (est_cost), so a single slow refresh changes nothing. */
+static void rate_update(void)
+{
+    if (enh.fps == 30 || enh.fps_test > 0 || est_cost <= 0) return;
+    const double p = (double)base_period();
+    int k = rate_div;
+    while (est_cost > 0.75 * p * k && p * (k + 1) <= 34e6) k++;
+    while (k > 1 && est_cost < 0.5 * p * (k - 1)) k--;
+    if (k != rate_div) { rate_div = k; n_rate_switch++; }
 }
 
 /* alpha of a refresh at display time `now`: the time since the last flip over the step period (frame_ticks ticks, or the measured flip interval when longer) */
@@ -328,20 +400,96 @@ static double alpha_at(Uint64 now)
     return a < 0 ? 0 : a > 1 ? 1 : a;
 }
 
-/* one display refresh: the wide pass (an extended view), then the main pass, which composes the picture */
-static void refresh(double alpha)
+/* S4.3 test aid (--fps-check): the refresh built the S4.1 way (the wide pass, then the main pass that composes) and compared with the one pass */
+static u32 *chk_buf;
+static bool in_check;
+static size_t chk_cap;
+
+static void refresh_check(double alpha)
 {
-    const Uint64 t0 = SDL_GetTicksNS();
-    t_last_refresh = dclock();
+    in_check = true;
     if (stream_wide) display_pass(0, alpha, PASS_WIDE_DISP);
     display_pass(0, alpha, PASS_MAIN_DISP);
+    in_check = false;
+    const size_t px = (size_t)disp_cv.lw * (size_t)disp_cv.lh;
+    if (!disp || !disp_new) return;
+    if (chk_cap < px) { free(chk_buf); chk_buf = malloc(px * sizeof(u32)); chk_cap = chk_buf ? px : 0; }
+    if (chk_buf) memcpy(chk_buf, disp, px * sizeof(u32));
+}
+
+/* S4.3 test aid (F117_DISP_HASH=FILE): per refresh picture its frame, refresh, size and FNV-1a hash (the picture before / after an optimisation) */
+static void disp_hash(void)
+{
+    static FILE *f;
+    static int state;
+    if (!state) { const char *e = getenv("F117_DISP_HASH"); f = e && *e ? fopen(e, "w") : NULL; state = 1; }
+    if (!f || in_check) return;
+    const size_t px = (size_t)disp_cv.lw * (size_t)disp_cv.lh;
+    fprintf(f, "%llu %d %dx%d %016llx\n", vg_frame, frame_refreshes + 1, disp_cv.lw, disp_cv.lh, (unsigned long long)fnv(0xCBF29CE484222325ull, disp, px * sizeof(u32)));
+}
+
+static void check_compare(void)
+{
+    const size_t px = (size_t)disp_cv.lw * (size_t)disp_cv.lh;
+    if (!chk_buf || chk_cap < px || !disp) return;
+    unsigned long long d = 0;
+    for (size_t i = 0; i < px; i++) d += chk_buf[i] != disp[i];
+    chk_refresh++;
+    if (d) { chk_diff_refresh++; chk_diff_px += d; }
+}
+
+/* one display refresh: one pass on A_k at alpha (S4.3: in an extended view the wide pass, which composes its own picture; S4.1 ran the wide pass and then the
+ * main pass) */
+static u64 r_snap, r_render, r_compose;   /* S4.3: this refresh's stages */
+
+/* S4.3: a refresh at alpha 1 in a view that is not extended, in the frame_floor wait (before the flip): the canonical frame's own render is the picture */
+static bool reuse_canonical(void)
+{
+    const size_t px = (size_t)enh_cv.lw * (size_t)enh_cv.lh;
+    if (disp_cap < px) { free(disp); disp = malloc(px * sizeof(u32)); disp_cap = disp ? px : 0; }
+    if (!disp) return false;
+    const Uint64 t0 = SDL_GetTicksNS();
+    if (!enh_compose_canonical(disp, (unsigned)(u16)(DSW(0x2E34) * 160) * 2u)) return false;
+    r_compose = SDL_GetTicksNS() - t0;
+    disp_cv = enh_cv; disp_new = true;
+    if (trace_f) enh_interp_trace(trace_f, vg_frame, frame_refreshes + 1, 1.0, (double)(t_last_refresh - stream_t0) / 1e6);   /* the live camera = the pass's */
+    n_reused++;
+    return true;
+}
+
+static void refresh(double alpha, bool before_flip)
+{
+    if (enh.fps_check) refresh_check(alpha);
+    const Uint64 t0 = SDL_GetTicksNS();
+    r_snap = r_render = r_compose = 0;
+    t_last_refresh = dclock();
+    const bool reused = before_flip && alpha >= 1.0 && !stream_wide && !enh.mfd_probe[0] && reuse_canonical();
+    if (!reused) display_pass(0, alpha, PASS_DISP);
+    if (!reused && test_cost_ns()) { const Uint64 e = SDL_GetTicksNS() + test_cost_ns(); while (SDL_GetTicksNS() < e) {} }   /* test aid: a slower machine */
     const Uint64 d = SDL_GetTicksNS() - t0;
+    disp_hash();                                              /* test aid, outside the timed stages */
+    if (enh.fps_check) check_compare();
     frame_refreshes++;
     n_refresh++;
     if (enh_interp_lerp()) n_refresh_lerp++;
     ns_r_total += d;
     if (d > ns_r_max) ns_r_max = d;
-    est_cost = est_cost > 0 ? 0.75 * est_cost + 0.25 * (double)d : (double)d;
+    enh_stage_sample(ST_SNAP, r_snap); enh_stage_sample(ST_RENDER, r_render); enh_stage_sample(ST_COMPOSE, r_compose); enh_stage_sample(ST_TOTAL, d);
+    if (!reused) { est_cost = est_cost > 0 ? 0.75 * est_cost + 0.25 * (double)d : (double)d; rate_update(); }   /* the cost of a pass (a reused picture is nearly free) */
+    n_refresh_div[rate_div < 4 ? rate_div : 3]++;
+}
+
+/* S4.3: a refresh at the frame start (A_k just taken, nothing rendered yet), when the last one began at least half an interval ago. Between the flip and
+ * the frame_floor wait the canonical frame waits for the frame tick ([262A], up to 14 ms) and renders: without this refresh no picture came for 15-20 ms
+ * after every step, and one display period a step showed the same picture twice (a hitch at the step rate). Not in holds (their one picture is at alpha 1)
+ * nor with --fps-test (its K refreshes stay in the wait). */
+static void frame_begin_refresh(void)
+{
+    if (!img_a.valid || enh_sbx || enh.fps_test > 0 || !enh_interp_lerp() || !t_flip) return;
+    const Uint64 now = dclock();
+    if (t_last_refresh && now - t_last_refresh < refresh_interval() / 2) return;
+    refresh(alpha_at(now), false);
+    n_begin_refresh++;
 }
 
 void enh_display_wait(u64 dl)
@@ -350,18 +498,23 @@ void enh_display_wait(u64 dl)
     if (!stream || !img_a.valid || enh_sbx || enh.fps_test > 0) return;
     if (!enh_interp_lerp() && frame_refreshes > 0) return;  /* holding: the one picture at alpha 1 is the frame */
     const Uint64 now = dclock();
-    if (frame_refreshes > 0 && now - t_last_refresh < refresh_interval()) return;
     if (frame_refreshes > 0) {                                /* it must end before the step is due: the flip keeps its time */
         const u64 due = host_tick_time_ns(dl), hn = host_ns();
         if (due <= hn || (double)(due - hn) < est_cost) return;
+        const Uint64 since = now - t_last_refresh, iv = refresh_interval();
+        if (since < iv) {                                     /* S4.3: early, when the refresh due at the interval would no longer fit before the step and this
+                                                               * one does: the step's last picture then comes near its end, not a whole period before it */
+            const bool late_misses = (double)(due - hn) < (double)(iv - since) + est_cost;
+            if (!(late_misses && since >= iv / 2)) return;
+        }
     }
-    refresh(alpha_at(now));
+    refresh(alpha_at(now), true);
 }
 
 void enh_frame_end(void)
 {
     if (enh_sbx) return;
-    if (stream && img_a.valid && frame_refreshes == 0) refresh(alpha_at(dclock()));   /* no time in the wait (or no wait): one refresh */
+    if (stream && img_a.valid && frame_refreshes == 0) refresh(alpha_at(dclock()), true);   /* no time in the wait (or no wait): one refresh */
     if (!stream) stream_show = false;                         /* a live frame (or --fps off): from its flip on the presenter shows the live page */
     if (deadline_set && host_ticks() > deadline_tick) n_steps_late++;
     const Uint64 now = dclock();
@@ -372,7 +525,7 @@ void enh_frame_end(void)
 void enh_display_hold(void)
 {
     if (!stream || !stream_show || !img_a.valid || enh_sbx || enh_compose_menu()) return;
-    refresh(1.0);                                             /* the paused frame as the faithful one (the step has not run yet: A_k is still this frame's) */
+    refresh(1.0, false);                                      /* the paused frame as the faithful one (the step has not run yet: A_k is still this frame's) */
 }
 
 void enh_flight_end(void)
@@ -391,7 +544,10 @@ int enh_display_take(u32 *out)
     if (!disp_new) return 0;
     disp_new = false;
     if (memcmp(&disp_cv, &enh_cv, sizeof disp_cv)) return 0;  /* the canvas changed since (a window resize): the next refresh has the new size */
+    const Uint64 t0 = SDL_GetTicksNS();
     memcpy(out, disp, (size_t)disp_cv.lw * (size_t)disp_cv.lh * sizeof(u32));
+    enh_stage_sample(ST_TAKE, SDL_GetTicksNS() - t0);
+    disp_presented = true;
     return 1;
 }
 
@@ -418,7 +574,8 @@ static void display_pass(int v, double alpha, PassKind kind)
 {
     if (!img_a.valid || enh_sbx) return;
     Uint64 t0 = SDL_GetTicksNS();
-    if (kind == PASS_MAIN_DISP) {                             /* S4.1: the live DAC / CRTC (the timer's flicker and shake since A_k) */
+    const bool disp_pass = kind == PASS_MAIN_DISP || kind == PASS_DISP;   /* the pass composes the refresh's picture */
+    if (disp_pass) {                                          /* S4.1: the live DAC / CRTC (the timer's flicker and shake since A_k) */
         if (!look_live) look_live = malloc(vga_look_size());
         if (!look_live) return;
         vga_look_get(look_live);
@@ -430,12 +587,12 @@ static void display_pass(int v, double alpha, PassKind kind)
 
     enh_sbx = true;
     enh_wide_drawn = false;
-    enh_wide_pass = kind == PASS_WIDE_FRAME || kind == PASS_WIDE_DISP;
+    enh_wide_pass = kind == PASS_WIDE_FRAME || kind == PASS_WIDE_DISP || (kind == PASS_DISP && stream_wide);
     if (enh_wide_pass) DSW(0x2E48) = DSW(0xC07A);             /* S3.4 fix 4: the cockpit picture counts as loaded (no file read in a pass); only the pass's 3D layer is used */
     test_view(v);
-    if (kind == PASS_WIDE_DISP || kind == PASS_MAIN_DISP) enh_interp_apply(alpha);   /* S4.1: the own aircraft at alpha (DESIGN 4.3) */
+    if (kind >= PASS_WIDE_DISP) enh_interp_apply(alpha);   /* S4.1: the own aircraft at alpha (DESIGN 4.3) */
     view_frame();                                             /* the faithful frame's render, as frame_loop_body runs it */
-    if (kind == PASS_MAIN_DISP && trace_f) enh_interp_trace(trace_f, vg_frame, frame_refreshes + 1, alpha, (double)(t_last_refresh - stream_t0) / 1e6);   /* S4.1 test aid: the camera of this refresh */
+    if (disp_pass && trace_f) enh_interp_trace(trace_f, vg_frame, frame_refreshes + 1, alpha, (double)(t_last_refresh - stream_t0) / 1e6);   /* S4.1 test aid: the camera of this refresh */
     hud_overlay_frame();
     if (DSW(0xC07A) == 0) {
         hud_draw_far();
@@ -446,11 +603,15 @@ static void display_pass(int v, double alpha, PassKind kind)
     if (kind == PASS_WIDE_FRAME) enh_wide_capture_to(0);      /* S3.4: the pass's layers (after its flip) are the pending wide picture */
     else if (kind == PASS_WIDE_DISP) enh_wide_capture_to(2);  /* S4.1: ... the wide picture of this refresh */
     Uint64 tc = SDL_GetTicksNS();
-    if (kind == PASS_MAIN_DISP) {                             /* S4.1: the refresh's picture, composed with the live look (DESIGN 4.2 step 4) */
+    if (disp_pass) {                                          /* S4.1: the refresh's picture, composed with the live look (DESIGN 4.2 step 4) */
         vga_look_set(look_live);
         const size_t px = (size_t)enh_cv.lw * (size_t)enh_cv.lh;
         if (disp_cap < px) { free(disp); disp = malloc(px * sizeof(u32)); disp_cap = disp ? px : 0; }
-        if (disp) { enh_compose_display(disp); disp_cv = enh_cv; disp_new = true; }
+        if (disp) {
+            if (kind == PASS_DISP && enh_wide_pass) enh_compose_display_self(disp);   /* S4.3: the wide pass's own picture */
+            else enh_compose_display(disp);
+            disp_cv = enh_cv; disp_new = true;
+        }
     }
     enh_wide_on = enh_wide_pt = false;
     enh_wide_pass = false;
@@ -462,7 +623,13 @@ static void display_pass(int v, double alpha, PassKind kind)
     Uint64 t3 = SDL_GetTicksNS();
     ns_snap += t1 - t0; ns_render += t2 - t1; ns_restore += t3 - t2;
     n_passes++;
-    if (kind == PASS_WIDE_DISP) ns_r_wide += tc - t1;
-    if (kind == PASS_MAIN_DISP) { ns_r_main += tc - t1; ns_r_compose += t2 - tc; }
-    if (kind == PASS_WIDE_DISP || kind == PASS_MAIN_DISP) ns_r_snap += (t1 - t0) + (t3 - t2);
+    if (kind == PASS_WIDE_DISP || (kind == PASS_DISP && enh_wide_drawn)) ns_r_wide += tc - t1;
+    if (kind == PASS_MAIN_DISP || (kind == PASS_DISP && !enh_wide_drawn)) ns_r_main += tc - t1;
+    if (disp_pass) ns_r_compose += t2 - tc;
+    if (kind == PASS_DISP) {
+        ns_r_snap += (t1 - t0) + (t3 - t2);
+        r_snap += (t1 - t0) + (t3 - t2);
+        r_render += tc - t1;
+        r_compose += t2 - tc;
+    }
 }

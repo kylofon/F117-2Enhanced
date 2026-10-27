@@ -47,6 +47,8 @@ void enh_menu(bool on);                                 /* S3.4: a VGAME menu sc
 void enh_wide_capture(void);                            /* S3.4, sandbox.c: the wide display pass's 3D and vector layers (after its flip) become the pending wide picture */
 void enh_wide_capture_to(int slot);                     /* S4.1: ... into slot 0 (pending) or 2 (the display refresh being built) */
 void enh_compose_display(u32 *out);                     /* S4.1, sandbox.c: in a display pass after its flip, the pass's picture with the refresh's wide picture */
+bool enh_compose_canonical(u32 *out, unsigned bytes);  /* S4.3, sandbox.c: the canonical render (before its flip of `bytes` bytes) composed as a pass at alpha 1 would (not extended) */
+void enh_compose_display_self(u32 *out);                /* S4.3, sandbox.c: in a wide display pass after its flip, the pass's picture alone (its 3D / vector layers are the wide picture) */
 bool enh_compose_menu(void);                            /* S4.1: a VGAME menu screen is up (enh_menu) */
 void enh_wide_clear_outside(void);                      /* S3.4, hr_pass.c: a wide main pass opens: the layers outside the frame are cleared */
 EnhView enh_view_get(void);

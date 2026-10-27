@@ -591,6 +591,53 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
   smooth shading + true night 73.5 ms (wide 43.0, main 17.9, compose 8.5) -> one refresh per step, 25 steps of 301 late. 60 Hz is not reachable with two
   renders per refresh; S4.3 merges them and reuses the canonical render at alpha 1.
 
+### 4.9 As built (S4.3): one render per refresh, the budget, the rate fallback
+* **One pass per refresh.** A refresh of an extended view is the wide pass alone (`PASS_DISP` with `enh_wide_pass`); after its flip it composes its own picture
+  (`enh_compose_display_self`: its shown 3D / night layers are the wide picture inside the frame's 3D window and outside the frame, its vector layer outside the
+  frame, its page, shadow records, HUD vector layer and TV / map windows everywhere else). S4.1's main pass rendered the same frame from the same A_k with the
+  same fields, unwidened; the widening changes only the hr layers, which the compositor took from the wide pass anyway, so the main pass was redundant.
+  A view that is not extended (FIT views, 4:3 windows, `--no-wide`) refreshes with the main pass, as before. `--fps-check` (test aid) builds each refresh both
+  ways (the S4.1 wide + main passes, then the one pass) and counts differing pixels: 0 in every run (view sweep, night + smooth, `--no-wide` day and night).
+* **The canonical render reused.** A refresh at alpha 1 in the `frame_floor` wait or `enh_frame_end` (before the flip) of a view that is not extended runs no
+  pass: `enh_compose_canonical` composes the canonical frame's own render as its flip will show it (the shown page's first `2E34 x 320` bytes previewed from the
+  back page and put back, the shadow records likewise, the work layers, the live look; `hr_night_late` runs now, the flip then finds nothing left). Equal to
+  the pass at alpha 1 (`--fps-check`: 0 pixels). Holds of such views and the K-th `--fps-test` refresh use it; an extended view needs its wide pass anyway
+  (the canonical render is not widened); the pause hold (after the flip) keeps its pass.
+* **The pass made cheaper** (every change pixel-identical: per-refresh picture hashes, `F117_DISP_HASH`, equal before / after on the day and night chains):
+  the hr span fill writes a row at a time (`span_run`: solid, grid / fine dither, FCh, the night factor; `hr_put_span` for the 1001 bands; `span_andor` for the
+  AND / OR ground faces FEh / FDh, which read the page under unwritten pixels per original pixel instead of per layer pixel); in a pass the flip swaps the work
+  and shown layer pointers instead of copying 4 layers (the pass's canvas is dropped after its compose); `lround` of the S3.5 band blend is an exact inline
+  (half away from zero on `v - trunc(v)`); the per-pixel loops run in bands of rows on a worker pool (`enhanced/par.c`, up to 8 threads, `F117_THREADS`, 1 with
+  `--classic`): the compositor, the S3.5 band blend, the S3.6 backdrop / pass end / late factors (`hr_night_late` sums its count atomically). Each band
+  writes only its rows, so the result does not depend on the threads.
+* **Scheduling.** A refresh also runs at the frame start (`enh_frame_begin`, right after A_k is taken, nothing rendered yet; not in holds, not with
+  `--fps-test`) when the last one began half an interval ago or more: between the flip and the `frame_floor` wait the canonical frame waits for the frame tick
+  (`[262A]`, up to 14 ms) and renders, and without it no picture came for 15-20 ms after every step (one display period a step showed the same picture). In
+  the wait a refresh may start before its interval (but not before half of it) when the one due at the interval would no longer end before the step, so the
+  step's last picture comes near its end. Real time, 1280 x 720, N = 4, `--fps 60`: 6.2 refreshes a step (S4.1: 4.7 at N = 2), refresh-to-refresh 15.9 ms on
+  average, 8 % of the gaps over 17 ms.
+* **Budget and fallback.** The budget is the display period (16.7 ms at 60 Hz). From the EMA of the pass cost (`est_cost`): when it is over 3/4 of the
+  interval, refreshes go to every 2nd display period (60 -> 30 Hz; on a faster monitor the smallest divisor that fits, not slower than ~30 Hz); back when it
+  is under half of the faster interval (hysteresis: no flapping). `--fps 30` and `--fps-test` are not changed. A reused picture does not count as a pass.
+  Exit statistics: `display-stages` (per refresh, ms average / p95: snapshot, render, compose, refresh; the presenter's copy `take`; `present` with a window),
+  `display-rate` (refreshes at every period / every 2nd / slower, switches, the EMA, the display period), `display-begin`, `display-reuse`.
+  Test aid `F117_TEST_REFRESH_MS=X` makes every pass X ms slower (busy): with X = 20 at `--fps 60`, 595 of 595 refreshes at 30 Hz, 1 switch.
+* **Measured** (2026-10-27; `port/notes/e43/profile.py`: the airbase, banked flight from frame 60, `--render-scale 4 --wide`, first cockpit view, headless,
+  virtual clock, `--fps-test 4`, 804 refreshes; ms per refresh, average / p95):
+
+  | Window, mode | snapshot | render | compose | refresh | take | refresh before (S4.1) |
+  |---|---|---|---|---|---|---|
+  | 1920 x 1080 day | 1.74 / 2.06 | 3.29 / 6.22 | 0.94 / 1.06 | **5.98 / 9.00** | 0.39 / 0.53 | 26.97 / 47.92 |
+  | 1920 x 1080 smooth + night | 1.68 / 1.94 | 9.55 / 14.94 | 2.39 / 2.53 | **13.63 / 19.08** | 0.40 / 0.51 | 71.41 / 91.75 |
+  | 2560 x 1440 day | 2.69 / 3.08 | 4.07 / 7.98 | 1.82 / 1.98 | **8.58 / 12.64** | 0.88 / 1.06 | 42.22 / 61.36 |
+  | 2560 x 1440 smooth + night | 2.67 / 3.01 | 14.60 / 24.34 | 4.14 / 4.45 | **21.41 / 31.03** | 0.81 / 0.93 | 106.41 / 133.87 |
+
+  Before, by stage: 1920 day snapshot 3.47, render 19.71 (wide 14.41 + main 5.30), compose 3.79; 1920 night 4.71, 58.29, 8.41; 2560 day 7.03, 28.39, 6.80;
+  2560 night 5.93, 84.87, 15.61. Present (a real window on a 1920 x 1080 164 Hz monitor): 1.24 / 1.39 ms day, 1.15 / 1.28 night. Real time, headless
+  (60 Hz display): 1920 day keeps 60 Hz (1299 of 1308 refreshes at every period); 2560 day 60 Hz with short drops in the costlier ground segment (868 of
+  1077); smooth + night falls back to 30 Hz at both sizes (pass EMA 12.0 and 20.2 ms against the 12.5 ms limit). With the window at 164 Hz the divisor is 3
+  (54.7 Hz) day and night.
+
 ## 5 (d) Hooks, `--classic`, tests
 
 ### 5.1 `ENH:` hooks (each a guarded call of 1–3 lines; bodies live in `src/enhanced/`)
@@ -624,6 +671,7 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 | `platform_exec` | `platform/startup.c` | `enh_flight_end()` (the stream stops with the program) | S4.1 |
 | `host_pump`, `present`, host helpers | `host.c` | `enh_display_ready` (present a refresh at once), `host_refresh_ns`, `host_tick_time_ns`, `host_present_stats` | S4.1 |
 | VGA look | `platform/vga.c` | `vga_look_get/set` (DAC, CRTC, attribute, sequencer) for the refresh's compose | S4.1 |
+| `present` | `host.c` | `enh_present_done` (the present stage of a display picture) | S4.3 |
 | `sim_snd_cmd`, `sim_snd_noise` | `sim/sim_stubs.c` | no-op in sandbox | S2.4 |
 | `sim_snd_poll`, `host_pump`, `host_opl_write`, `dos_*`, `rtl_open/write`, `fopen_fn`, `unlink_fn`, `platform_load_file_paras` | `sim/sim_stubs.c`, `host.c`, `platform/dosio.c` | refused + counted in sandbox (`enh_sandbox_deny`) | S2.4 |
 | `host_wait_until_ns`, `vga_wait_vretrace_*` | `host.c`, `platform/vga.c` | return at once in sandbox | S2.4 |
@@ -648,6 +696,7 @@ no hook leaks into classic.
 | `enh_sandbox_hash` | as built (4.7): the `debrief_chain_sea` chain on the virtual clock, plain / 3 test-view display passes per VGAME frame / `--classic`: per-frame hashes of DGROUP, comm, LCG, sound driver, OPL stream, `mem[]`, VGA, canvas identical (canvas not compared with classic), final comm block and roster identical, 0 forbidden calls | S2.4 |
 | `sim_interp_equal` | as built (4.8): the `enh_sandbox_hash` chain in a 1280 x 720 window, `--fps off` vs `--fps-test 4`, `--fps 60`, `--fps vsync`, and night + smooth with `--fps-test 3`: every frame hash (canvas included), final comm block, OPL stream, roster identical | S4.1 |
 | `enh_fps_jerk` | the real-path view sweep in banked flight, `--fps-test 4 --fps-trace`: own-camera steps even and never backward, holding frames one picture; a real-time `--fps 60` run: alpha monotone, no backward cockpit step | S4.1 |
+| `enh_one_render` | as built (4.9): `--fps-check` (S4.1 two-pass picture vs the one pass / the reused canonical render) on the view sweep, night + smooth, `--no-wide` day and night: 0 differing pixels; the 30 Hz fallback in real time with `F117_TEST_REFRESH_MS=20` | S4.3 |
 | `enh_wide_geometry`, `r3d_hr_wide`, `r3d_hr_wide_realpath`, `enh_sandbox_hash` (`--wide` run) | the placement per view and window; the golden scenes with a wide main pass (reference, gaps, hole, seams); the real-path view sweep at 16:9 / 21:9 (3.5) | S3.4 |
 | headless dumps | `--headless --enh-dump DIR` + `F117_KEYS` scripts: front cockpit (h 91/107), rear, left, right, 0x44, chase, TV, map; N=2/4; 4:3, 16:9, 21:9; plus mask PNGs → U1 | S2.3, S3.x |
 

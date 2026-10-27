@@ -12,7 +12,9 @@
  * A night pass also turns on the S3.5 blend codes of the bands and shaded ramps, so the colours under the factor are continuous too.
  * Nothing here writes mem[], the page or the VGA model: only hr state and the night plane. */
 #include "enhanced/hr.h"
+#include "enhanced/par.h"
 
+#include <SDL3/SDL.h>
 #include <math.h>
 #include <string.h>
 
@@ -76,6 +78,14 @@ static inline u8 sky_nd(double t)
     return lut_s[e < SKY_LUT_N - 1 ? (int)e : SKY_LUT_N - 1];
 }
 static inline u8 pixel_nd(s32 x, s32 y) { const double t = t_of(x, y); return t >= 0 ? sky_nd(t) : nd_depth(ground_d(t)); }
+
+/* S4.3: the rows ymin..ymax (clipped to 0..lh - 1) of a per-pixel loop on the worker pool */
+static void par_rows(s32 ymin, s32 ymax, s32 lh, EnhParFn fn, void *ctx)
+{
+    const s32 y0 = ymin < 0 ? 0 : ymin, y1 = ymax < lh - 1 ? ymax : lh - 1;
+    if (y1 >= y0) enh_par_for_from(y0, y1 + 1, fn, ctx);
+}
+static void backdrop_rows(void *unused, int lo, int hi);
 
 void hr_night_pass_begin(bool main_win)
 {
@@ -148,7 +158,13 @@ void hr_night_backdrop(s16 H)
     const s16 alt = (s16)DSW(0x4980);
     st.f = f; st.fa = f * (alt > 1 ? alt : 1);
     st.geo = true;
-    for (s32 y = enh_hr.ymin < 0 ? 0 : enh_hr.ymin; y <= enh_hr.ymax && y < enh_hr.lh; y++) {
+    par_rows(enh_hr.ymin, enh_hr.ymax, enh_hr.lh, backdrop_rows, NULL);   /* S4.3: rows on the worker pool */
+}
+
+static void backdrop_rows(void *unused, int lo, int hi)
+{
+    (void)unused;
+    for (s32 y = lo; y < hi; y++) {
         const u16 *row = enh_hr.layer + (size_t)y * enh_hr.lw;
         u8 *nrow = enh_hr.night + (size_t)y * enh_hr.lw;
         for (s32 x = enh_hr.xmin < 0 ? 0 : enh_hr.xmin; x <= enh_hr.xmax && x < enh_hr.lw; x++) {
@@ -162,15 +178,21 @@ void hr_night_backdrop(s16 H)
     }
 }
 
-/* the end of the main pass: every pixel of the window still without a factor (sprites, dots, stamps, 1x pixels) gets the factor of its place */
-void hr_night_pass_end(void)
+static void pass_end_rows(void *unused, int lo, int hi)
 {
-    if (!enh_hr.night || !st.geo) return;
-    for (s32 y = enh_hr.ymin < 0 ? 0 : enh_hr.ymin; y <= enh_hr.ymax && y < enh_hr.lh; y++) {
+    (void)unused;
+    for (s32 y = lo; y < hi; y++) {
         u8 *nrow = enh_hr.night + (size_t)y * enh_hr.lw;
         for (s32 x = enh_hr.xmin < 0 ? 0 : enh_hr.xmin; x <= enh_hr.xmax && x < enh_hr.lw; x++)
             if (!nrow[x] && !HR_IN_HOLE(x, y)) nrow[x] = pixel_nd(x, y);
     }
+}
+
+/* the end of the main pass: every pixel of the window still without a factor (sprites, dots, stamps, 1x pixels) gets the factor of its place */
+void hr_night_pass_end(void)
+{
+    if (!enh_hr.night || !st.geo) return;
+    par_rows(enh_hr.ymin, enh_hr.ymax, enh_hr.lh, pass_end_rows, NULL);   /* S4.3: rows on the worker pool */
     last.valid = true;
     last.ax = st.ax; last.ay = st.ay; last.c0 = st.c0; last.f = st.f; last.fa = st.fa;
     last.xmin = enh_hr.xmin; last.ymin = enh_hr.ymin; last.xmax = enh_hr.xmax; last.ymax = enh_hr.ymax; last.lw = enh_hr.lw; last.lh = enh_hr.lh;
@@ -179,6 +201,26 @@ void hr_night_pass_end(void)
 
 /* fix 2: the 3D layer pixels of the last night window written after its pass ended (1x writes of the overlay pass and the rest of the frame that the hr back
  * end does not mirror, stamped with factor 0) get the factor of their place too; at the next pass and at the flip. Lights of the overlay pass keep 255. */
+typedef struct { u8 *nd; const u16 *lay; } LateJob;
+static SDL_AtomicInt late_add;
+
+static void late_rows(void *jp, int lo, int hi)
+{
+    const LateJob *j = jp;
+    int n = 0;
+    for (s32 y = lo; y < hi; y++) {
+        u8 *nrow = j->nd + (size_t)y * last.lw;
+        const u16 *lrow = j->lay + (size_t)y * last.lw;
+        for (s32 x = last.xmin < 0 ? 0 : last.xmin; x <= last.xmax && x < last.lw; x++) {
+            if (nrow[x] || !(lrow[x] & 0x100)) continue;
+            if (last.hole && y >= last.hole_y && x >= last.hole_x0 && x <= last.hole_x1) continue;
+            nrow[x] = pixel_nd(x, y);
+            n++;
+        }
+    }
+    SDL_AddAtomicInt(&late_add, n);
+}
+
 void hr_night_late(void)
 {
     if (!last.valid) return;
@@ -188,16 +230,10 @@ void hr_night_late(void)
     if (!nd || !lay || last.lw != enh_cv.lw || last.lh != enh_cv.lh) return;
     const double ax = st.ax, ay = st.ay, c0 = st.c0, f = st.f, fa = st.fa;
     st.ax = last.ax; st.ay = last.ay; st.c0 = last.c0; st.f = last.f; st.fa = last.fa;
-    for (s32 y = last.ymin < 0 ? 0 : last.ymin; y <= last.ymax && y < last.lh; y++) {
-        u8 *nrow = nd + (size_t)y * last.lw;
-        const u16 *lrow = lay + (size_t)y * last.lw;
-        for (s32 x = last.xmin < 0 ? 0 : last.xmin; x <= last.xmax && x < last.lw; x++) {
-            if (nrow[x] || !(lrow[x] & 0x100)) continue;
-            if (last.hole && y >= last.hole_y && x >= last.hole_x0 && x <= last.hole_x1) continue;
-            nrow[x] = pixel_nd(x, y);
-            late_px++;
-        }
-    }
+    LateJob j = { nd, lay };
+    SDL_SetAtomicInt(&late_add, 0);
+    par_rows(last.ymin, last.ymax, last.lh, late_rows, &j);           /* S4.3: rows on the worker pool */
+    late_px += SDL_GetAtomicInt(&late_add);
     st.ax = ax; st.ay = ay; st.c0 = c0; st.f = f; st.fa = fa;
 }
 

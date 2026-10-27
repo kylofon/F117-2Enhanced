@@ -9,6 +9,7 @@
 #include "enhanced/hr.h"
 #include "enhanced/sandbox.h"
 #include "enhanced/wide.h"
+#include "enhanced/par.h"
 #include "mem.h"
 #include "render3d/r3d.h"
 #include "platform/vga.h"
@@ -430,7 +431,12 @@ void enh_flip(unsigned bytes)
     hr_night_late();                                                  /* S3.6 fix 2: the night window's pixels written after its pass */
     if (!enh_sbx) { held_promote(); present_hold = false; }          /* S3.4: the wide picture of this frame goes on screen with it (fix 4: the held picture is released) */
     memcpy(sh_shown, sh_work, n * sizeof(Shadow));
-    if (layer_px) {
+    if (layer_px && enh_sbx) {                                        /* S4.3: in a display pass the work layers are not drawn on after its flip (the pass ends and its
+                                                                       * canvas is dropped): the shown layers become the work ones without a copy */
+        u16 *t = l3d_shown; l3d_shown = l3d_work; l3d_work = t;
+        t = lvec_shown; lvec_shown = lvec_work; lvec_work = t;
+        u8 *t8 = l3n_shown; l3n_shown = l3n_work; l3n_work = t8;
+    } else if (layer_px) {
         memcpy(l3d_shown, l3d_work, layer_px * sizeof(u16));
         memcpy(lvec_shown, lvec_work, layer_px * sizeof(u16));
         memcpy(l3n_shown, l3n_work, layer_px);                        /* S3.6 */
@@ -467,20 +473,28 @@ static inline u32 l3_night(u32 c, u8 nd)
 }
 enum { CLS_BLACK, CLS_ART, CLS_WORLD, CLS_VEC, CLS_WORLD1 };   /* nothing / a page pixel (art, text, panel) / a 3D layer pixel / a vector layer pixel / a 3D record shown as its 1x pixel */
 
-static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *pal, bool screen, const ComposeSrc *cs)
+/* S4.3: the canvas rows ylo..yhi - 1 of a composition (compose_canvas runs bands of rows on the worker pool, par.h) */
+typedef struct { u32 *out; const u8 *idx; const u16 *sidx; const u32 *pal; const ComposeSrc *cs; } ComposeJob;
+
+static void compose_rows(void *jp, int ylo, int yhi)
 {
+    const ComposeJob *job = jp;
+    u32 *const out = job->out;
+    const u8 *const idx = job->idx;
+    const u16 *const sidx = job->sidx;
+    const u32 *const pal = job->pal;
+    const ComposeSrc *const cs = job->cs;
     const Shadow *sh_shown = cs->sh;
     const u16 *l3d_shown = cs->l3, *lvec_shown = cs->lv;
-    const int lw = enh_cv.lw, lh = enh_cv.lh, n = enh_cv.n, fx = enh_cv.fx, fy = enh_cv.fy;
+    const int lw = enh_cv.lw, n = enh_cv.n, fx = enh_cv.fx, fy = enh_cv.fy;
     u8 *const cls = cs->cls;
-    memset(out, 0, (size_t)lw * (size_t)lh * sizeof(u32));
-    if (cls) memset(cls, CLS_BLACK, (size_t)lw * (size_t)lh);
-    if (!screen) return;
+    memset(out + (size_t)ylo * lw, 0, (size_t)lw * (size_t)(yhi - ylo) * sizeof(u32));
+    if (cls) memset(cls + (size_t)ylo * lw, CLS_BLACK, (size_t)lw * (size_t)(yhi - ylo));
     const bool layers = layer_px != 0;
     if (layers && (enh_cv.vw > 320 * n || enh_cv.vh > 200 * n)) {    /* the extended area: the 3D layer around the frame (S3.4: the wide picture's, vector layer on top) */
         const u16 *ext3 = cs->l3h ? cs->l3h : l3d_shown;
         const u8 *extn = cs->l3h ? cs->n3h : cs->n3;                   /* S3.6 */
-        for (int y = 0; y < lh; y++) {
+        for (int y = ylo; y < yhi; y++) {
             u32 *o = out + (size_t)y * lw;
             const u16 *l = ext3 + (size_t)y * lw, *v = cs->lvh ? cs->lvh + (size_t)y * lw : NULL;
             const u8 *nl = extn ? extn + (size_t)y * lw : NULL;
@@ -496,6 +510,7 @@ static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *
     for (int y = 0; y < 200; y++) {
         const bool hrow = cs->l3h && y >= cs->hy0 && y <= cs->hy1;
         for (int ky = 0; ky < n; ky++) {
+            if (fy + y * n + ky < ylo || fy + y * n + ky >= yhi) continue;   /* S4.3: another band's row */
             u32 *o = out + (size_t)(fy + y * n + ky) * lw + fx;
             u8 *co = cls ? cls + (size_t)(fy + y * n + ky) * lw + fx : NULL;
             for (int x = 0; x < 320; x++, o += n) {
@@ -558,6 +573,18 @@ static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *
     }
 }
 
+static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *pal, bool screen, const ComposeSrc *cs)
+{
+    const int lw = enh_cv.lw, lh = enh_cv.lh;
+    if (!screen) {
+        memset(out, 0, (size_t)lw * (size_t)lh * sizeof(u32));
+        if (cs->cls) memset(cs->cls, CLS_BLACK, (size_t)lw * (size_t)lh);
+        return;
+    }
+    ComposeJob job = { out, idx, sidx, pal, cs };
+    enh_par_for(lh, compose_rows, &job);                              /* S4.3: bands of rows on the worker pool (the same pixels as one band) */
+}
+
 /* S3.4: the sources of the present path: the shown plane and layers, and the wide picture h when it belongs to this placement (S4.1: inside a display pass the
  * shown plane and layers are the pass's) */
 static void compose_src(ComposeSrc *cs, const Held *h)
@@ -586,6 +613,51 @@ void enh_compose_display(u32 *out)
     compose_src(&cs, &held[2]);
     compose_canvas(out, idx, sidx, pal, screen, &cs);
     held[2].valid = false;
+}
+
+/* S4.3: the one pass of a display refresh (sandbox.c, after its flip): a wide pass's own shown layers are the wide picture (S4.1 took them from a second pass) */
+void enh_compose_display_self(u32 *out)
+{
+    static u8 idx[PAGE_PIXELS];
+    static u16 sidx[PAGE_PIXELS];
+    u32 pal[256];
+    const bool screen = vga_shown_frame(idx, sidx, pal);
+    ComposeSrc cs;
+    held[2].valid = false;
+    compose_src(&cs, &held[2]);
+    if (enh_wide_drawn && layer_px && !menu_on && enh_canvas_extended()) {
+        cs.l3h = l3d_shown; cs.lvh = lvec_shown; cs.n3h = l3n_shown;
+        cs.hx0 = enh_wide_win[0]; cs.hy0 = enh_wide_win[1]; cs.hx1 = enh_wide_win[2]; cs.hy1 = enh_wide_win[3];
+    }
+    compose_canvas(out, idx, sidx, pal, screen, &cs);
+}
+
+/* S4.3: the canonical frame's own render as its flip (frame_loop_body: flip(DSW(2E34) * 160)) will show it, composed now with the live look, without a display pass:
+ * the picture a pass at alpha 1 would compose (it renders the same A_k with the same fields). For a view that is not extended (no wide picture). The flip is
+ * previewed: the shown page's first `bytes` bytes from the back page (put back afterwards), the shown shadow records likewise, the work layers; the night pixels
+ * written after the last night pass get their factor now (hr_night_late: the flip would do the same, then has nothing left to do). false = not possible here. */
+bool enh_compose_canonical(u32 *out, unsigned bytes)
+{
+    static u8 idx[PAGE_PIXELS], save[PAGE_PIXELS];
+    static u16 sidx[PAGE_PIXELS];
+    static Shadow sh[PAGE_PIXELS];
+    if (!layer_px || menu_on || enh_canvas_extended() || video_page_seg(0) != 0xA000 || !video_page_seg(1) || video_page_seg(1) == 0xA000) return false;
+    const size_t n = bytes < PAGE_PIXELS ? bytes : PAGE_PIXELS;
+    u8 *vr = vga_vram();
+    hr_night_late();
+    memcpy(save, vr, n);
+    memcpy(vr, seg_ptr(video_page_seg(1)), n);
+    u32 pal[256];
+    const bool screen = vga_shown_frame(idx, sidx, pal);
+    memcpy(vr, save, n);
+    memcpy(sh, sh_shown, sizeof sh);
+    memcpy(sh, sh_work, n * sizeof(Shadow));
+    ComposeSrc cs;
+    memset(&cs, 0, sizeof cs);
+    cs.sh = sh; cs.l3 = l3d_work; cs.lv = lvec_work; cs.n3 = l3n_work;
+    cs.blend = true;
+    compose_canvas(out, idx, sidx, pal, screen, &cs);
+    return true;
 }
 
 bool enh_compose_menu(void) { return menu_on; }
