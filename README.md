@@ -16,7 +16,7 @@ Status and plan: [PLAN.md](PLAN.md) (as a page: `python tools/plan_site.py`, the
 * **Smooth distance shading** and **True night**: options, off by default.
 * **Launcher** with an Enhanced box, and `--classic`: the original picture and behaviour, as the faithful port.
 
-Not yet: a higher frame rate (the next stage). See [CHANGELOG.md](CHANGELOG.md).
+Frame rate (in progress): display decoupled from the sim (`--fps vsync|60|30|off`), objects, HUD and map interpolated. See [CHANGELOG.md](CHANGELOG.md).
 
 ## How to play
 
