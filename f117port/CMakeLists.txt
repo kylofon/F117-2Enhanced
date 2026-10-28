@@ -225,8 +225,8 @@ endif()
 # --fps 60, --fps vsync (and night + smooth shading with --fps-test 3 against --fps off): every frame hash, the final comm block, OPL stream and roster identical.
 # enh_fps_jerk: the real-path view sweep in banked flight with --fps-test 4 --fps-trace: the camera of the own-aircraft views steps evenly between refreshes,
 # never backward, holding frames show one picture; then a real-time run with --fps 60 (alpha from the display clock).
-# S4.6: it also checks the map MFD (the aircraft marker and blips per refresh, even and never backward; the logged step drawing replays to A_k's window), in the
-# view sweep and in a zoomed run (map at its largest scale).
+# S4.6: it also checks the map MFD, which scrolls under the aircraft marker (the scroll, marker and blips per refresh even and never backward, the scroll
+# continuous from frame to frame; the logged step drawing replays to A_k's window; the terrain cache matches the original's window), in the view sweep and in a zoom run.
 if(Python3_Interpreter_FOUND)
     add_test(NAME sim_interp_equal COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/../port/notes/e41/interp_equal.py
              $<TARGET_FILE:f117> ${CMAKE_CURRENT_SOURCE_DIR}/../Game ${CMAKE_CURRENT_BINARY_DIR}/enh_interp equal)

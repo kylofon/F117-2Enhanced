@@ -89,10 +89,21 @@ void enh_flip(unsigned bytes);                          /* the page flip copied 
 /* Layers for the emitters (S2.2, S3.x): 16-bit entries, bit 8 = written, low byte = DAC index (bit 9: a stamped 1x value, see
  * enh_rec_fill). Work = being drawn, shown = flipped. */
 void enh_vec_put(int lx, int ly, u8 c);                 /* S3.1: a vector-layer pixel of an hr emitter, layer coordinates; marks its page pixel */
-/* S4.6: run a 1x drawing op (the map MFD's aircraft marker, a unit blip) on the rectangle x, y, w, h (1x, at most 8 x 8) of pages 0 / 1 and show what it drew
- * moved by (ox, oy) layer pixels (0..N-1) instead: the pages, records and layers of the rectangle are left as they were and every pixel the op wrote (found by
- * running it over two sentinel backgrounds) is emitted as an N x N vector-layer block at the offset, clipped to the 1x rectangle clip = x0, y0, x1, y1 (exclusive) */
+/* S4.6, the map MFD between steps (mapmfd.c):
+ * enh_cap_shift: run a 1x drawing op (the aircraft marker, a blip) on the rectangle x, y, w, h (1x, at most 8 x 8) of pages 0 / 1 and show what it drew moved by
+ * (ox, oy) layer pixels instead: the rectangle's pages, records and layers are left as they were and every pixel the op wrote (found by running it over two
+ * sentinel backgrounds) becomes an N x N vector-layer block at the offset, clipped to the 1x rectangle clip = x0, y0, x1, y1 (exclusive).
+ * enh_win_shift: the same for any rectangle and ops that also draw hr lines (route, arc): what changed on `seg`'s plane (1x pixels, vector-layer pixels) moves.
+ * enh_rect_snap / unsnap: a rectangle of both pages with its records and layers, put back.
+ * The map cache: a rectangle as 3D-layer pixels (grab), shown in a window moved by (sxl, syl) layer pixels (put: the window's layer pixel u is the cache's u + s) */
+typedef struct EnhRectSnap EnhRectSnap;
+EnhRectSnap *enh_rect_snap(int x, int y, int w, int h);
+void enh_rect_unsnap(EnhRectSnap *s);
 void enh_cap_shift(int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg);
+void enh_win_shift(u16 seg, int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg);
+typedef struct { int w, h, n; size_t cap, pcap; u8 *pg; u16 *l3; u8 *l3n; } EnhMapCache;
+bool enh_map_cache_grab(EnhMapCache *c, u16 seg, int x, int y, int w, int h);
+void enh_map_cache_put(const EnhMapCache *c, u16 seg, int x, int y, int w, int h, int sxl, int syl);
 void enh_compose_work(u32 *out, const u8 *page, const u32 *pal, bool blend);   /* S3.1 test aid: the frame being drawn composed from `page` (S3.5: blend = pal is the DAC, mix the blend codes) */
 /* S3.3: the HUD / MFD vector lines at N x (hr_obj.c). A hook pair around the 1x drawing of line() / hud_tick_strip(): begin decides (true = the 1x footprint is held, SRC_VECHR) and end
  * draws the same line / ticks thin (max(1, N/2) layer pixels, Decisions Q3) in the vector layer, from the 1x endpoints (frame pixels incl. draw_off). */

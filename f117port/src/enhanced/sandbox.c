@@ -574,6 +574,7 @@ static void test_view(int v)
 /* DESIGN 4.2 steps 1-5. S2.4 renders A_k (with the test view v > 0, or as it is with v = 0; no interpolated fields, no wide culling)
  * and presents nothing. S3.4: the wide pass of the frame. S4.1: the two passes of a display refresh, at alpha. */
 void enh_display_pass(int v) { display_pass(v, 1.0, PASS_TEST); }
+void enh_sandbox_reload(void) { if (enh_sbx && img_a.valid) image_load(&img_a); }   /* S4.6 */
 
 static void display_pass(int v, double alpha, PassKind kind)
 {
@@ -591,6 +592,7 @@ static void display_pass(int v, double alpha, PassKind kind)
     Uint64 t1 = SDL_GetTicksNS();
 
     enh_sbx = true;
+    if (kind >= PASS_WIDE_DISP) enh_map_prepare(alpha);      /* S4.6: the map cache rendered when due (then A_k is loaded again) */
     enh_wide_drawn = false;
     enh_wide_pass = kind == PASS_WIDE_FRAME || kind == PASS_WIDE_DISP || (kind == PASS_DISP && stream_wide);
     if (enh_wide_pass) DSW(0x2E48) = DSW(0xC07A);             /* S3.4 fix 4: the cockpit picture counts as loaded (no file read in a pass); only the pass's 3D layer is used */

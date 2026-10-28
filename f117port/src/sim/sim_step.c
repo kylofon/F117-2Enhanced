@@ -126,7 +126,7 @@ void sim_frame_step(void)
             u16 site = SITE(DSW((u16)(0xE2DA + 0x12 * i)));
             if (mfd_map_to_screen((s16)DSW(site + 2), (s16)DSW(site + 4), &wsx, &wsy)) {
                 cockpit_keyblit(wsx - 1, wsy - 1, 0x104, 0, 4, 4, 0);
-                if (enh_map_log_on) enh_map_log_key(0, wsx - 1, wsy - 1, 0x104, 0, 4, 4, 0);   /* ENH: S4.6 */
+                if (enh_map_log_on) enh_map_log_key(0, DSW(site + 2), DSW(site + 4), wsx - 1, wsy - 1, 0x104, 0, 4, 4, 0);   /* ENH: S4.6 */
             }
         }
         if (DSW(0xDFDC) == 0x14) mfd_map_route();
@@ -136,7 +136,7 @@ void sim_frame_step(void)
     wpn_proj_update_all();
     if (DSW(0x365E) != 0 && DSW(0xDEDA) == 0) {
         cockpit_keyblit(sx - 1, sy - 1, 0x100 | (((s16)(DSW(0x2DEE) + 0x1000) >> 11) & 0x1C), 4, 4, 4, 0);
-        if (enh_map_log_on) enh_map_log_key(1, sx - 1, sy - 1, 0x100 | (((s16)(DSW(0x2DEE) + 0x1000) >> 11) & 0x1C), 4, 4, 4, 0);   /* ENH: S4.6 */
+        if (enh_map_log_on) enh_map_log_key(1, DSW(0xC0A4), DSW(0xC0B2), sx - 1, sy - 1, 0x100 | (((s16)(DSW(0x2DEE) + 0x1000) >> 11) & 0x1C), 4, 4, 4, 0);   /* ENH: S4.6 */
     }
     wpn_cm_tick();
     wpn_gun_update();

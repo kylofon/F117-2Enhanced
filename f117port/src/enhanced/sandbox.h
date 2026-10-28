@@ -33,6 +33,7 @@ void enh_opl_trace(u8 reg, u8 val);                     /* host.c host_opl_write
 
 /* One display pass now (from enh_idle; needs a valid A_k). v > 0: the test view v of --sandbox-test (sandbox.c test_view). */
 void enh_display_pass(int v);
+void enh_sandbox_reload(void);                         /* S4.6: in a display pass, the image A_k again (mem, VGA, statics; not the canvas): after the map cache render */
 
 /* S4.1, the display stream (DESIGN 4.1, 4.8): with --fps on, a VGAME frame that loads no cockpit picture is shown only by display passes: one display refresh
  * (S4.3: one pass on A_k with the fields at alpha, the wide pass when the view is extended, composed with the live DAC / CRTC; at alpha 1 in a view that is not

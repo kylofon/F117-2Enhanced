@@ -21,9 +21,11 @@ picture (all their refreshes equal). S4.2, the per-object-class jerk trace: per 
 pose ring, the flight-path marker offset) and frame the 4 values its refreshes showed step evenly from its F_{k-1} value, never backward, and end on F_k
 (the classes this chain has must appear; tracers / smoke / the wreck are covered by ctest enh_interp_rules). Then a real-time run (no virtual clock) of the same with --fps 60: alpha never decreases inside a frame and stays in 0..1, and
 the cockpit camera never steps backward, also across a sim step.
-S4.6, the map MFD: in the view sweep and in a zoomed run (banked flight with the map at its largest scale: the marker moves about 0.85 original pixels a step
-and the map recentres) the aircraft marker and the unit / missile blips the refreshes drew (o-lines mapown / mapunit / mapproj: the continuous position in
-1/64 pixel and the layer pixel drawn) step evenly, never backward, end on F_k; the step's logged map drawing replayed as logged gives the window A_k shows.
+S4.6, the map MFD scrolls continuously under the aircraft marker: in the view sweep (zoom 2) and in a zoom run (banked flight, zoom 9 with the original
+recentring its map, then every zoom down to 2) the map's scroll, the marker and the unit / missile blips the refreshes drew (o-lines mapscroll / mapown /
+mapunit / mapproj: the continuous position in 1/64 pixel and the layer pixel drawn) step evenly, never backward, end on F_k, and the scroll goes on from frame to
+frame without a jump; the step's logged map drawing replayed as logged gives the window A_k shows; the terrain cache matches the original's window inside
+(map_check).
 
 usage: python interp_equal.py <f117 executable> <game dir> <work dir> [equal|jerk]          exit 77 without the game files
 """
@@ -242,8 +244,8 @@ def jerk_check(frames, k):
 
 
 OBJ_RE = re.compile(r'^o (\d+) (\d+) (\w+) (\d+) v=(\S+) a=(\S+) b=(\S+)')
-OBJ_CLASSES = ('unit', 'proj', 'tracer', 'smoke', 'wreck', 'spin', 'ring', 'fpm', 'mapown', 'mapunit', 'mapproj')   # S4.6: the map MFD's aircraft marker / blips
-MAP_CLASSES = ('mapown', 'mapunit', 'mapproj')   # v = x, y in 1/64 of an original pixel (continuous), the layer pixel drawn x, y
+OBJ_CLASSES = ('unit', 'proj', 'tracer', 'smoke', 'wreck', 'spin', 'ring', 'fpm', 'mapown', 'mapunit', 'mapproj', 'mapscroll')   # S4.6: the map MFD
+MAP_CLASSES = ('mapown', 'mapunit', 'mapproj', 'mapscroll')   # v = x, y in 1/64 of an original pixel (continuous), the layer pixel drawn x, y (mapscroll: of a world point)
 
 
 def obj_delta(cls, i, a, b):
@@ -327,35 +329,67 @@ def jerk_run(exe, game, work, name, extra, vclock=True, keys=None, frames=None):
 
 MAP_RE = re.compile(r'display-map: (\d+) frames with the map shown, (\d+) redrawn per refresh; aircraft marker moved (\d+), held (\d+); blips moved (\d+) of (\d+); '
                     r'tags not at F_k (\d+); log overflows (\d+); replay check (\d+) frames, (\d+) differ')
-# S4.6: the zoomed map run: the chain's start keys, then z (zoom in) 7 times once the flight has begun: the map at its largest scale (about 0.85 original pixels a
-# step at 380 kt), so the marker moves and the map recentres in the run
-MAP_KEYS = '1:31,2:03,11:39,' + ','.join('%.1f:2c' % (62 + 0.5 * i) for i in range(7))
-MAP_FRAMES = 200
+MAP2_RE = re.compile(r'terrain cache renders (\d+), ([\d.]+) ms each; terrain check (\d+) renders, (\d+) pixels differ inside \(max (\d+) a render\), (\d+) near the edge; '
+                     r'cache overlap (\d+), (\d+) pixels differ \(max (\d+)\); original recentres (\d+)')
+# S4.6: the zoom run: the chain's start keys, then z (zoom in) 7 times once the flight has begun (zoom 9, the largest scale: about 1.15 original pixels a step
+# at 380 kt, the original recentres its map about every 55 steps), 250 frames there, then x (zoom out) back to zoom 2 (8 for 100 frames: a recentre too;
+# 7..2 for 30 frames each): every zoom is shown and its cache rendered (and compared with the original's window)
+MAP_KEYS = '1:31,2:03,11:39,' + ','.join(['%.1f:2c' % (62 + 0.5 * i) for i in range(7)] + ['%d:2d' % t for t in (90, 100, 103, 106, 109, 112, 115)])
+MAP_FRAMES = 520
 
 
-def map_check(out, ost, what, min_own):
-    """S4.6: the map MFD's symbols. The display-map exit line: the log replayed as logged gives the window A_k shows (replay check 0 differ: no drawing of the
-    step is missed), every tagged blip was plotted at its object's F_k cells, no overflow; the aircraft marker interpolated in at least min_own frames; the
-    per-class trace (o-lines mapown / mapunit / mapproj) even, never backward, ending on F_k (obj_jerk)"""
-    m = MAP_RE.search(out)
-    if not m:
+def scroll_continuity(tr, k):
+    """S4.6: the map's scroll across frames: the first refresh of frame f starts where the last refresh of frame f-1 ended (o-lines mapscroll: a of f = b of
+    f-1, the same zoom, both frames interpolating), so the terrain moves on without a jump, also where the original recentres its map or the cache is
+    rendered again. -> (frame pairs checked, jumps, zooms seen, total move in original pixels)"""
+    rows = {}
+    for l in open(tr):
+        m = OBJ_RE.match(l)
+        if m and m.group(3) == 'mapscroll' and int(m.group(2)) == k:
+            rows[int(m.group(1))] = (int(m.group(4)), [int(x) for x in m.group(6).split(',')], [int(x) for x in m.group(7).split(',')])
+    pairs = jumps = 0
+    moved = 0.0
+    for f, (z, a, b) in sorted(rows.items()):
+        moved += (abs(b[0] - a[0]) + abs(b[1] - a[1])) / 64.0
+        if f - 1 in rows and rows[f - 1][0] == z:
+            pairs += 1
+            pb = rows[f - 1][2]
+            if any(abs(a[i] - pb[i]) > 1 for i in range(4)):
+                jumps += 1
+    return pairs, jumps, sorted({z for z, _, _ in rows.values()}), moved
+
+
+def map_check(out, ost, what, min_own, tr=None, k=4):
+    """S4.6: the map MFD (continuous scroll). The display-map exit line: the log replayed as logged gives the window A_k shows (replay check 0 differ: no
+    drawing of the step is missed), every tagged blip was plotted at its object's F_k cells, no overflow; the terrain cache rendered at the original's map cells
+    shows the original's window (at most 4 pixels a render more than 7 pixels from the edge; nearer, the original clips
+    the polygons to its window: rounded vertices); two caches show the same terrain where they
+    overlap (0 pixels); the per-class trace (o-lines mapown / mapunit / mapproj / mapscroll) even, never backward, ending on F_k (obj_jerk); the scroll
+    continuous from frame to frame (scroll_continuity)"""
+    m, m2 = MAP_RE.search(out), MAP2_RE.search(out)
+    if not m or not m2:
         print('enh_fps_jerk map (%s): no display-map line  BAD' % what)
-        return 1
+        return 1, None
     v = [int(x) for x in m.groups()]
-    o = ost['mapown']
-    ok = v[9] == 0 and v[8] > 0 and v[6] == 0 and v[7] == 0 and v[2] >= min_own and o['frames'] >= min_own
+    w = [float(x) for x in m2.groups()]
+    sc = scroll_continuity(tr, k) if tr else (0, 0, [], 0.0)
+    ok = v[9] == 0 and v[8] > 0 and v[6] == 0 and v[7] == 0 and v[2] >= min_own and ost['mapscroll']['frames'] >= min_own
+    ok = ok and w[0] > 0 and w[2] > 0 and w[4] <= 4 and w[7] == 0 and sc[0] >= min_own - 10 and sc[1] == 0
     ok = ok and all(ost[c]['uneven'] == 0 and ost[c]['back'] == 0 and ost[c]['off'] == 0 for c in MAP_CLASSES)
     print('enh_fps_jerk map (S4.6, %s): %d frames with the map, %d redrawn per refresh, marker moved %d / held %d, blips moved %d of %d, tags off %d, '
-          'replay check %d frames %d differ; trace (frames / uneven / backward / not ending on F_k, worst): %s%s'
-          % (what, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[8], v[9],
+          'replay check %d frames %d differ; cache renders %d (%.2f ms), terrain check %d renders %d inside (max %d a render) / %d edge pixels, overlaps %d with %d pixels, '
+          'original recentres %d; scroll: %d frame pairs, %d jumps, zooms %s, %.1f pixels; trace (frames / uneven / backward / not ending on F_k, worst): %s%s'
+          % (what, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[8], v[9], w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[9], sc[0], sc[1],
+             ','.join(str(z) for z in sc[2]), sc[3],
              '; '.join('%s %d/%d/%d/%d %.1f %%' % (c, ost[c]['frames'], ost[c]['uneven'], ost[c]['back'], ost[c]['off'], 100 * ost[c]['worst']) for c in MAP_CLASSES),
              '' if ok else '  BAD'))
-    return 0 if ok else 1
+    return (0 if ok else 1), (w, sc)
 
 
 def map_zoom(exe, game, work, k):
-    """S4.6: the zoomed map: banked flight (the test pose) at the largest map scale, --fps-test k. Besides map_check: the marker really moves (at least 30
-    original pixels over the run) and the map recentres at least once (a frame whose marker is far from the previous frame's: the map jumped, not the marker)"""
+    """S4.6: the zoom run (MAP_KEYS): banked flight (the test pose), --fps-test k. Besides map_check: every zoom 2..9 shown with the scroll checked, the map
+    scrolled at least 30 original pixels, the original recentred its map at least once meanwhile (the scrolled map does not jump there), the cache rendered
+    again at least once at the same zoom (overlap check)"""
     p, tr, secs = jerk_run(exe, game, work, 'jerk_map', '--fps-test %d' % k, keys=MAP_KEYS, frames=MAP_FRAMES)
     if p.returncode != 0 or not os.path.isfile(tr):
         print('enh_fps_jerk map FAILED: the run ended with %d (%s)' % (p.returncode, p.stderr[-400:]))
@@ -363,21 +397,14 @@ def map_zoom(exe, game, work, k):
     ost, obad = obj_jerk(tr, k)
     for b in obad[:10]:
         print('  ' + b)
-    moved, recentres, last = 0, 0, None
-    for l in open(tr):
-        mm = OBJ_RE.match(l)
-        if not mm or mm.group(3) != 'mapown' or int(mm.group(2)) != k:
-            continue
-        a = [int(x) for x in mm.group(6).split(',')]
-        b = [int(x) for x in mm.group(7).split(',')]
-        moved += abs(b[0] - a[0]) + abs(b[1] - a[1])
-        if last is not None and abs(a[1] - last[1]) + abs(a[0] - last[0]) > 64 * 8:
-            recentres += 1
-        last = b
-    bad = map_check(p.stdout, ost, 'zoomed, %.0f s' % secs, 150)
-    print('enh_fps_jerk map (zoomed): the marker moved %.1f original pixels in the run, the map recentred %d times%s'
-          % (moved / 64.0, recentres, '' if moved >= 30 * 64 and recentres >= 1 else '  BAD'))
-    return 1 if bad or moved < 30 * 64 or recentres < 1 else 0
+    bad, info = map_check(p.stdout, ost, 'zoom run, %.0f s' % secs, 300, tr, k)
+    if info is None:
+        return 1
+    w, sc = info
+    ok = sc[2] == list(range(2, 10)) and sc[3] >= 30 and w[9] >= 1 and w[6] >= 1
+    print('enh_fps_jerk map (zoom run): zooms %s, scrolled %.1f original pixels, original recentres %d, cache overlaps %d%s'
+          % (','.join(str(z) for z in sc[2]), sc[3], w[9], w[6], '' if ok else '  BAD'))
+    return 1 if bad or not ok else 0
 
 
 def jerk(exe, game, work):
@@ -410,7 +437,7 @@ def jerk(exe, game, work):
     if not ok:
         print('enh_fps_jerk FAILED')
         return 1
-    if map_check(p.stdout if p.stdout else '', ost, 'view sweep', 100) or map_zoom(exe, game, work, k):
+    if map_check(p.stdout if p.stdout else '', ost, 'view sweep, zoom 2', 100, tr, k)[0] or map_zoom(exe, game, work, k):
         print('enh_fps_jerk FAILED')
         return 1
     # real time: alpha from the display clock

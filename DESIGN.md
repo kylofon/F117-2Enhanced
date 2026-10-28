@@ -491,7 +491,7 @@ Everything else (sim state, explosion frame `[9D0C]`, fire puffs, messages, dama
 ### 4.4 HUD/MFDs, effects between steps
 The HUD is re-drawn in every display pass from the lerped attitude/position: ladder, horizon, heading tape, ADI, target
 boxes and the velocity vector move smoothly (in 1× steps, 2.6); digits show values computed from the lerped fields or A_k.
-MFD pages redraw only when the sim changes them, so they update at the step rate, as today (S4.6: except the map MFD's moving symbols, 4.11). Rotating parts, missiles,
+MFD pages redraw only when the sim changes them, so they update at the step rate, as today (S4.6: except the map MFD, which scrolls under the aircraft marker, 4.11). Rotating parts, missiles,
 tracers, smoke and the wreck follow 4.3; explosion and puff animation frames stay per step (they are art frames).
 
 ### 4.5 Input and sound
@@ -676,49 +676,62 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 * **Cost.** Reading the objects once per frame (about 3 KB) and writing them per pass is lost in the noise: `port/notes/e43/profile.py` at 1920 x 1080,
   N = 4, wide, 804 refreshes, ms per refresh avg / p95: day 5.51 / 6.95 (before S4.2: 5.58 / 6.96), smooth + true night 13.23 / 16.67 (13.06 / 16.28).
 
-### 4.11 As built (S4.6): the map MFD between steps
+### 4.11 As built (S4.6): the map MFD between steps, scrolling continuously
 * **Why it stepped (root cause).** The original draws the map's moving symbols in the **sim step**, not in the render (`sim_frame_step`, 39C4 ff.; `sim/sim_step.c`):
   `mfd_map_restore_bg` (9770) copies the window back from the backup page 2, then the two target markers (`cockpit_keyblit` 0x104), the route (`mfd_map_route`
-  94A5, its first leg from the aircraft), the detection arc (`hud_threat_update` -> `mfd_map_arc` 863C), the unit blips (`ai_update_units`, 2x2 colour 29h) and
-  the missile blips (`wpn_proj_update_all`, colour 11h, blinking) and last the aircraft marker (one of 8 heading sprites of `256PIT.PIC`) are drawn into the draw
-  page. The terrain (`map_render_terrain` 119C via `mfd_map_redraw` 8387) is drawn only when the marker leaves the window (the map recentres, the aircraft
-  32 pixels behind the centre) or the zoom changes, then saved to the backup. `view_frame` only copies the window to the other page. A display pass
-  (4.2) re-runs the render on A_k, so every refresh showed step k-1's drawing: the marker and the blips moved at the step rate, by whole original pixels
-  (N x N layer pixels). How visible depends on the zoom (`[4080]` 2..9, an original pixel = 2^(10 - z) cells): at 380 kt the aircraft moves about 2.3 cells
-  a step, so 0.01 pixel a step at zoom 2 and 1.15 pixels (a 4-layer-pixel jump at N = 4, ~10 times a second) at zoom 9. Nothing in the original
-  updates the map less often than once a step (no every-Nth-frame logic); the picture is north-up, it does not rotate or scroll.
-* **The log (live).** With the stream on (`enh_fps_on`; never with `--fps off` / `--classic`) the step's map drawing is logged in order (`enhanced/mapmfd.c`):
-  hooks at `mfd_map_save_bg` / `restore_bg` (the log starts again: what was drawn before is in the backup or erased; also covers `det_site_radar_update`'s restore-plot-save
-  of a newly detected site), `mfd_map_plot` (world cells, colour, size; tagged with its unit / projectile slot by a hook in front of the plot in `fl_ai.c` /
-  `fl_weapons.c`), `mfd_map_route`, `mfd_map_arc` (its own plots not logged), and the two `cockpit_keyblit` calls of `sim_frame_step` (target marker, aircraft
-  marker: with BA10 / C02A / C0A4 / C0B2 / 2DEE at that moment). At the frame start (`enh_map_frame`, after `enh_interp_frame`) the log of step k-1 becomes
-  this frame's, the aircraft marker keeps its last two steps.
-* **The replay (per pass).** When the frame interpolates, the map is shown (`[365E]`, `[DEDA]` = 0) and the log is complete, every display pass
-  (`enh_map_apply`, after `enh_interp_apply`, before `view_frame`) copies the window back from the backup (`mfd_map_restore_bg`, with the S3.2 window store) and
-  replays the log: target markers, route, arc as logged (the route's first leg from the marker's whole cell); a tagged blip at its object's cells lerped
-  unrounded (`enh_interp_cells`, the S4.2 match: slot + type, no jump; else as logged); the aircraft marker between its last two steps' positions (the
-  cells with the fraction 39C4's rounding dropped, so the whole pixel is the step's), with the sprite of the lerped heading (shortest arc). Positions are
-  the unrounded `mfd_map_sx / sy` (x / 2^s + 70h, 3/4 y / 2^s + 8Bh) of **this frame's** map, so across a recentre the marker keeps moving and the map jumps
-  as in the original. Held (drawn as logged) when the last two markers are not consecutive steps, more than 32 cells apart, or either end is outside the
-  window.
-* **Sub-pixel symbols** (`enh_cap_shift`, `enh_canvas.c`): the 1x op (the `cockpit_keyblit`, the `hud_pixel`s of a blip) runs at the whole pixel over two
-  sentinel backgrounds (00h, FFh; a pixel it wrote reads the same both times, so a sprite pixel that equals the map below is found too), the rectangle's pages,
-  records and layers are put back, and each written pixel becomes an N x N vector-layer block moved by the fraction (`floor(frac N)` layer pixels), clipped to
-  the window: the art is the original sprite, at a layer-pixel position. The blocks are SRC_VECHR records, so the terrain (3D layer) shows where no block lands.
-  At N = 1 the op runs at the lerped whole pixel.
-* **Alpha 1.** The marker and the blips keep their fraction at alpha 1, the canonical frame shows the whole pixel: so a refresh at alpha 1 is a pass, not the
-  canonical render, while the map is redrawn (`enh_map_active`, S4.3 reuse off in the views that are not extended; `--no-wide` / the second cockpit view by
-  day ~5 ms instead of ~1). A frame that holds (4.8) shows the canonical frame: up to one original pixel from the fraction, once (view change, start, jump).
-* **Not changed:** the terrain, the recentring and zoom (the map jumps when the marker reaches the edge, as in the original), the 8 marker sprites (it
-  turns in 45-degree steps), the blink of the missile blips and the detection arc's growth (per step), the 1x look of the static markers and the route's 1x
-  endpoints.
-* **Tests.** `enh_fps_jerk` (ctest): per pass o-lines `mapown` / `mapunit` / `mapproj` (the continuous position in 1/64 pixel and the layer pixel drawn, at
-  alpha, 0 and 1) checked like the S4.2 objects; the exit line `display-map:` has a **replay check** (`F117_MAP_CHECK=1` or `--fps-trace`: once per frame the log
-  replayed as logged must give the window A_k shows, i.e. nothing the step drew is missed). View sweep: 154 frames redrawn, marker 153 frames, blips 330 + 19
-  object-frames, 0 uneven / backward / not ending on F_k, replay 154 / 0 differ, tags off 0. New zoomed run (banked flight, `z` x 7 = zoom 9): 197 frames, the
-  marker moves 115 original pixels with one recentre, 183 frames 0 uneven (worst 7.3 % of the mean step) / 0 backward, replay 197 / 0 differ. `enh_one_render`:
-  the wide runs compare the map redraw of the S4.1 and S4.3 passes (identical); the two `--no-wide` reuse runs press F3 at 62 s (the scope in the left MFD), since
-  with the map redrawn a refresh at alpha 1 is no longer the canonical render. `sim_interp_equal` unchanged (the log is not sim state).
+  94A5, its first leg from the aircraft), the detection plot and arc (`hud_threat_update` -> `mfd_map_arc` 863C), the unit blips (`ai_update_units`, 2x2 colour
+  29h), the missile blips (`wpn_proj_update_all`, colour 11h, blinking) and last the aircraft marker (one of 8 heading sprites of `256PIT.PIC`) go into the draw
+  page. The terrain (`map_render_terrain` 119C via `mfd_map_redraw` 8387, with the site dots) is drawn only when the marker leaves the window (the map recentres,
+  the aircraft 32 pixels behind the centre) or the zoom changes, then saved to the backup. `view_frame` only copies the window to the other page. A display pass
+  (4.2) re-runs the render on A_k, so every refresh showed step k-1's drawing: the marker and blips moved at the step rate by whole original pixels, the map jumped
+  at every recentre. Zoom `[4080]` 2..9, an original pixel = 2^(10 - z) cells; at 380 kt the aircraft moves about 2.3 cells a step: 0.01 pixel a step at zoom 2,
+  1.15 at zoom 9 (a 4-layer-pixel jump ~10 times a second at N = 4, a recentre every ~55 steps). North-up, no every-Nth-frame logic.
+* **What it does now (user request 2026-10-28: "scroll continuously").** With the stream on (`--fps vsync / 60 / 30`) the map is **centred on the aircraft
+  marker** and the terrain, the grid of roads / rivers, the site dots, target squares, route, detection arc and blips move under it at layer-pixel precision; there
+  is no recentre jump. Centred, not the original's offset: the original has no constant marker-to-centre offset (the marker starts 32 pixels behind the centre
+  along the heading of the moment of the recentre and then flies across the window), and a look-ahead that followed the heading would swing the whole map sideways
+  in every turn. The marker keeps its 8 heading sprites. `--fps off` and `--classic` keep the original map (nothing is logged).
+* **The log (live).** With the stream on (`enh_fps_on`) the step's map drawing is logged in order (`enhanced/mapmfd.c`): hooks at `mfd_map_save_bg` / `restore_bg`
+  (the log starts again; also covers `det_site_radar_update`'s restore-plot-save of a newly detected site), `mfd_map_plot` (cells, colour, size; tagged with its
+  unit / projectile slot by a hook in front of the plot in `fl_ai.c` / `fl_weapons.c`), `mfd_map_route`, `mfd_map_arc` (its own plots not logged), and the two
+  `cockpit_keyblit` calls of `sim_frame_step` (a target marker with its site's cells; the aircraft marker with BA10 / C02A / C0A4 / C0B2 / 2DEE). At the frame start
+  (`enh_map_frame`, after `enh_interp_frame`) the log of step k-1 becomes this frame's; the marker keeps its last two steps. The map is redrawn by every pass
+  while it is shown and the log is complete, holds included (the marker then at its last step): otherwise a hold would show the original's placement for a frame.
+* **The map's centre** is the marker's position between its last two steps (the cells with the fraction 39C4's rounding dropped), lerped by alpha (shortest
+  arc for the heading), never extrapolated; held at the last step when they are not consecutive steps or more than 32 cells apart.
+* **The terrain cache** (cheaper than a terrain render per refresh): in the first pass that needs it (`enh_map_prepare`, before `enh_interp_apply`), the map
+  window grown by 24 pixels on every side (125 x 108 at (50, 86), same centre, so 119C's camera and tile bounds follow the window) is cleared (colour 6) and drawn
+  as 8387 draws the window: `map_render_terrain` at N x and the site dots, with the map at cells on the grid of whole map pixels in x and of whole 3/4-row groups
+  in y (4 cell rows -> 3 pixel rows), so every cache has the terrain's pixels in the same place and scrolling is a translation. `enh_map_cache_grab` keeps it as
+  3D-layer pixels (a 3D write keeps its layer pixels, the clear colour and the dots become their 1x value N x N); the rectangle's canvas is put back and the pass
+  reloads A_k (`enh_sandbox_reload`: mem, VGA, statics), so the pass goes on as if nothing happened. A new cache when the zoom, N, the backup window (the original
+  redrew: recentre, zoom, a detected site) or the site dots change, or when the centre is more than 16 pixels from the cache's (its 8-pixel rim is never shown: the
+  polygons are clipped there). Per refresh `enh_map_cache_put` copies the window from the cache moved by the scroll in whole layer pixels (round(scroll x N)):
+  records 3D, the vector layer cleared.
+* **The symbols.** Target squares, route, detection plot and arc (the "statics") are drawn by the original functions in one `enh_win_shift` with the map at the
+  cells of the same pixel grid nearest below the centre and the clip grown by 4 pixels, and what they drew (1x pixels as N x N blocks, the hr route / arc lines
+  as their vector-layer pixels) is moved by the rest of the scroll (up to 1 pixel in x, 3 in y), clipped to the window. The blips are at their objects' cells
+  (`enh_interp_cells`: lerped unrounded when S4.2 matches them, else F_k) relative to the centre, moved by sub-pixels with `enh_cap_shift` (the 1x op over two
+  sentinel backgrounds finds its pixels, which become N x N vector-layer blocks at the offset). The marker is drawn at the window's centre (112, 139) as the
+  original sprite.
+* **Faithfulness.** The terrain and the dots are the original's render, translated. Compared with the original's own window (a cache rendered at its map cells,
+  test aid), pixels differ only near the window's edge, where the original clips the polygons to the window and rounds the new vertices (a shallow edge's sliver
+  can reach 13 pixels in: at most 2 pixels a render more than 7 pixels in, over the zoom run). Detected sites that the original plotted in colour 0 into its
+  backup show with 8387's colour after the next cache render (as after the original's next recentre).
+* **Alpha 1.** The map's alpha-1 picture is not the canonical frame's, so a refresh at alpha 1 is a pass while the map is redrawn (`enh_map_active`, S4.3 reuse
+  off in the views that are not extended: `--no-wide` / the second cockpit view ~5 ms instead of ~1 by day). A frame that loads a cockpit picture (switching
+  into the cockpit) is shown live after its flip with the original's map for that one frame.
+* **Not changed:** the 8 marker sprites (45-degree steps), the missile blips' blink and the arc's growth (per step), the 1x look of the target squares and dots
+  (N x N blocks, now at layer-pixel positions), the route's 1x endpoints.
+* **Tests.** `enh_fps_jerk` (ctest): per pass o-lines `mapscroll` (the centre from a fixed world point in 1/64 pixel, and the drawn layer pixel of the world
+  under the window), `mapown`, `mapunit`, `mapproj`, checked like the S4.2 objects (even, never backward, ending on F_k), plus the scroll's continuity from frame
+  to frame (the first refresh of a frame starts where the last one of the frame before ended). The exit line `display-map:` has a replay check (`F117_MAP_CHECK=1`
+  or `--fps-trace`: the log replayed as logged gives the window A_k shows), the terrain check (each cache render also rendered at the original's map cells and
+  compared with the backup window) and the overlap check (two caches with the same sites agree pixel for pixel where they overlap). View sweep (zoom 2):
+  160 frames redrawn, scroll 149 frame pairs with 0 jumps, 6 cache renders (terrain check 0 pixels inside / 10 near the edge; 1 overlap, 0 pixels), 1 original recentre, replay check 159 frames 0 differ, the trace 0 uneven / 0 backward (mapscroll and mapown 153 frames, blips 271 + 19 object-frames). Zoom run (zoom 9 for 250 frames, then 8 .. 2): 507 frames redrawn at zooms 2..9, scrolled 224 original pixels, 476 frame pairs with 0 jumps across 4 original recentres and 36 cache renders (terrain check 2 pixels inside in one render at zoom 5, 66 near the edge; 13 overlaps, 0 pixels), replay check 507 frames 0 differ, mapscroll 491 frames 0 uneven (worst 7.3 % of the mean step) / 0 backward. `enh_one_render`: the wide runs compare the map of the S4.1 and S4.3 passes
+  (identical); its two `--no-wide` reuse runs press F3 at 62 s (the scope in the left MFD), since with the map redrawn a refresh at alpha 1 is no longer the
+  canonical render. `sim_interp_equal` unchanged (the log and the cache are not sim state).
+* **Cost** (`port/notes/e43/profile.py`, 1920 x 1080, N = 4, wide, 804 refreshes, ms avg / p95): the map work 0.46 .. 0.51 ms a pass (the terrain copy about 0.15, the statics about 0.25); a cache render 2.3 .. 2.5 ms, in the refresh that needs it (7 in 200 frames at zoom 2; at zoom 9 about every 15 steps plus the original's recentres); per refresh day 7.06 / 10.13, smooth + true night 13.73 / 17.34 (the first S4.6 build, symbols only, in a quieter run: 6.10 / 8.18 and 13.77 / 17.68; the machine's load varied about 2x during the session). One render per step instead would cost the 2.5 ms 10 times a second, one per refresh 60 times.
 
 ## 5 (d) Hooks, `--classic`, tests
 

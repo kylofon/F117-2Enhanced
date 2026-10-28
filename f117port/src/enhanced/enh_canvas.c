@@ -900,26 +900,32 @@ static void vec_put_seg(u16 seg, int lx, int ly, u8 c)
     lv[(size_t)ly * enh_cv.lw + lx] = (u16)(0x100 | c);
 }
 
-/* ---------------------------------------------------------------- moved 1x symbols (S4.6) */
+/* ---------------------------------------------------------------- the map MFD between steps (S4.6, mapmfd.c) */
 
-enum { CAP_MAX = 8, CAP_LMAX = CAP_MAX * MAX_SIDE / 320 + 8 };   /* a rectangle of at most 8 x 8 page pixels, N <= 25 */
+/* a rectangle of pages 0 / 1 with its records and the three layers of both planes */
+struct EnhRectSnap {
+    int x, y, w, h, n, np;
+    bool vec_only;      /* only the pages, records and the vector layer (ops that draw no 3D pixel) */
+    u16 seg[2];
+    u8 *pg[2];
+    Shadow *rec[2];
+    u16 *l3[2], *lv[2];
+    u8 *l3n[2];
+};
 
-typedef struct {
-    u8 pg[2][CAP_MAX * CAP_MAX];
-    Shadow rec[2][CAP_MAX * CAP_MAX];
-    u16 l3[2][CAP_LMAX * CAP_LMAX], lv[2][CAP_LMAX * CAP_LMAX];
-    u8 l3n[2][CAP_LMAX * CAP_LMAX];
-} CapSave;
-
-static void cap_io(CapSave *s, bool save, const u16 seg[2], int np, int x, int y, int w, int h)
+static void plane_of(int p, int np, Shadow **sh, u16 **l3, u16 **lv, u8 **l3n)
 {
-    const int n = enh_cv.n, ln = w * n;
-    for (int p = 0; p < np; p++) {
-        u8 *pg = seg_ptr(seg[p]);
-        Shadow *sh = p == 0 ? sh_shown : sh_work;   /* page 0 = the shown plane, page 1 = the work plane (plane_shown) */
-        u16 *l3 = p == 0 ? l3d_shown : l3d_work, *lv = p == 0 ? lvec_shown : lvec_work;
-        u8 *l3n = p == 0 ? l3n_shown : l3n_work;
-        if (np == 1) { sh = sh_work; l3 = l3d_work; lv = lvec_work; l3n = l3n_work; }   /* page 1 aliases page 0: all work */
+    const bool shown = np == 2 && p == 0;                      /* page 0 = the shown plane, page 1 = the work plane (plane_shown); one page: all work */
+    *sh = shown ? sh_shown : sh_work; *l3 = shown ? l3d_shown : l3d_work; *lv = shown ? lvec_shown : lvec_work; *l3n = shown ? l3n_shown : l3n_work;
+}
+
+static void snap_io(EnhRectSnap *s, bool save)
+{
+    const int n = s->n, ln = s->w * n, x = s->x, y = s->y, w = s->w, h = s->h;
+    for (int p = 0; p < s->np; p++) {
+        u8 *pg = seg_ptr(s->seg[p]);
+        Shadow *sh; u16 *l3, *lv; u8 *l3n;
+        plane_of(p, s->np, &sh, &l3, &lv, &l3n);
         for (int j = 0; j < h; j++) {
             const int o = (y + j) * 320 + x;
             if (save) { memcpy(s->pg[p] + j * w, pg + o, (size_t)w); memcpy(s->rec[p] + j * w, sh + o, (size_t)w * sizeof(Shadow)); }
@@ -927,60 +933,222 @@ static void cap_io(CapSave *s, bool save, const u16 seg[2], int np, int x, int y
         }
         if (!l3 || !lv || !l3n) continue;
         for (int j = 0; j < h * n; j++) {
-            const size_t at = (size_t)(enh_cv.fy + y * n + j) * enh_cv.lw + (size_t)(enh_cv.fx + x * n);
-            if (save) { memcpy(s->l3[p] + j * ln, l3 + at, (size_t)ln * sizeof(u16)); memcpy(s->lv[p] + j * ln, lv + at, (size_t)ln * sizeof(u16)); memcpy(s->l3n[p] + j * ln, l3n + at, (size_t)ln); }
-            else { memcpy(l3 + at, s->l3[p] + j * ln, (size_t)ln * sizeof(u16)); memcpy(lv + at, s->lv[p] + j * ln, (size_t)ln * sizeof(u16)); memcpy(l3n + at, s->l3n[p] + j * ln, (size_t)ln); }
+            const size_t at = (size_t)(enh_cv.fy + y * n + j) * enh_cv.lw + (size_t)(enh_cv.fx + x * n), o = (size_t)j * ln;
+            if (save) memcpy(s->lv[p] + o, lv + at, (size_t)ln * sizeof(u16));
+            else memcpy(lv + at, s->lv[p] + o, (size_t)ln * sizeof(u16));
+            if (s->vec_only) continue;
+            if (save) { memcpy(s->l3[p] + o, l3 + at, (size_t)ln * sizeof(u16)); memcpy(s->l3n[p] + o, l3n + at, (size_t)ln); }
+            else { memcpy(l3 + at, s->l3[p] + o, (size_t)ln * sizeof(u16)); memcpy(l3n + at, s->l3n[p] + o, (size_t)ln); }
         }
     }
 }
 
-static void cap_fill(const u16 seg[2], int np, int x, int y, int w, int h, u8 v)
+static void snap_free(EnhRectSnap *s)
 {
-    for (int p = 0; p < np; p++)
-        for (int j = 0; j < h; j++) memset(seg_ptr(seg[p]) + (y + j) * 320 + x, v, (size_t)w);
+    if (!s) return;
+    for (int p = 0; p < 2; p++) { free(s->pg[p]); free(s->rec[p]); free(s->l3[p]); free(s->lv[p]); free(s->l3n[p]); }
+    free(s);
 }
 
-void enh_cap_shift(int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg)
+static EnhRectSnap *rect_snap(int x, int y, int w, int h, bool vec_only)
 {
-    static CapSave sv;
-    static u8 v0[2][CAP_MAX * CAP_MAX], wr[2][CAP_MAX * CAP_MAX];
-    const int n = enh_cv.n;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > 320) w = 320 - x;
     if (y + h > 200) h = 200 - y;
-    if (w <= 0 || h <= 0 || w > CAP_MAX || h > CAP_MAX || n > 25 || !lvec_work || !l3d_work || !l3n_work) { op(arg); return; }
-    const u16 seg[2] = { 0xA000, video_page_seg(1) };
-    const int np = seg[1] == 0 || seg[1] == 0xA000 ? 1 : 2;
-    cap_io(&sv, true, seg, np, x, y, w, h);
-    cap_fill(seg, np, x, y, w, h, 0x00);                      /* the op over background 0 ... */
-    op(arg);
-    for (int p = 0; p < np; p++)
-        for (int j = 0; j < h; j++) memcpy(v0[p] + j * w, seg_ptr(seg[p]) + (y + j) * 320 + x, (size_t)w);
-    cap_io(&sv, false, seg, np, x, y, w, h);
-    cap_fill(seg, np, x, y, w, h, 0xFF);                      /* ... and over FFh: a pixel it wrote reads the same both times */
-    op(arg);
-    for (int p = 0; p < np; p++)
-        for (int j = 0; j < h; j++) {
-            const u8 *pg = seg_ptr(seg[p]) + (y + j) * 320 + x;
-            for (int i = 0; i < w; i++) wr[p][j * w + i] = (u8)(v0[p][j * w + i] == pg[i]);
-        }
-    cap_io(&sv, false, seg, np, x, y, w, h);                  /* the rectangle as it was */
-    for (int p = 0; p < np; p++)
-        for (int j = 0; j < h; j++)
-            for (int i = 0; i < w; i++) {
-                if (!wr[p][j * w + i]) continue;
-                const u8 c = v0[p][j * w + i];
-                const int lx0 = enh_cv.fx + (x + i) * n + ox, ly0 = enh_cv.fy + (y + j) * n + oy;
-                for (int ky = 0; ky < n; ky++)
-                    for (int kx = 0; kx < n; kx++) {
-                        const int lx = lx0 + kx, ly = ly0 + ky;
-                        if (lx < enh_cv.fx || ly < enh_cv.fy) continue;
-                        const int qx = (lx - enh_cv.fx) / n, qy = (ly - enh_cv.fy) / n;   /* the 1x pixel the layer pixel lies in */
-                        if (qx < clip[0] || qy < clip[1] || qx >= clip[2] || qy >= clip[3]) continue;
-                        vec_put_seg(seg[p], lx, ly, c);
-                    }
+    if (w <= 0 || h <= 0 || !lvec_work || !l3d_work || !l3n_work) return NULL;
+    EnhRectSnap *s = calloc(1, sizeof *s);
+    if (!s) return NULL;
+    s->x = x; s->y = y; s->w = w; s->h = h; s->n = enh_cv.n; s->vec_only = vec_only;
+    s->seg[0] = 0xA000; s->seg[1] = video_page_seg(1);
+    s->np = s->seg[1] == 0 || s->seg[1] == 0xA000 ? 1 : 2;
+    const size_t a = (size_t)w * h, la = a * (size_t)s->n * (size_t)s->n;
+    for (int p = 0; p < s->np; p++) {
+        s->pg[p] = malloc(a); s->rec[p] = malloc(a * sizeof(Shadow));
+        s->lv[p] = malloc(la * sizeof(u16));
+        if (!vec_only) { s->l3[p] = malloc(la * sizeof(u16)); s->l3n[p] = malloc(la); }
+        if (!s->pg[p] || !s->rec[p] || !s->lv[p] || (!vec_only && (!s->l3[p] || !s->l3n[p]))) { snap_free(s); return NULL; }
+    }
+    snap_io(s, true);
+    return s;
+}
+
+EnhRectSnap *enh_rect_snap(int x, int y, int w, int h) { return rect_snap(x, y, w, h, false); }
+
+void enh_rect_unsnap(EnhRectSnap *s)
+{
+    if (!s) return;
+    snap_io(s, false);
+    snap_free(s);
+}
+
+/* what an op wrote, moved: a 1x pixel as an N x N block, a vector-layer pixel as itself (layer coordinates), clipped to the 1x rectangle clip */
+typedef struct { int lx, ly; u8 c; } Emit;
+static Emit *emit_buf;
+static size_t emit_n, emit_cap;
+static void emit_add(int lx, int ly, u8 c)
+{
+    if (emit_n == emit_cap) {
+        const size_t nc = emit_cap ? emit_cap * 2 : 4096;
+        Emit *e = realloc(emit_buf, nc * sizeof(Emit));
+        if (!e) return;
+        emit_buf = e; emit_cap = nc;
+    }
+    emit_buf[emit_n++] = (Emit){ lx, ly, c };
+}
+
+static void emit_all(u16 seg, const int clip[4])
+{
+    const int n = enh_cv.n;
+    for (size_t i = 0; i < emit_n; i++) {
+        const int lx = emit_buf[i].lx, ly = emit_buf[i].ly;
+        if (lx < enh_cv.fx || ly < enh_cv.fy) continue;
+        const int qx = (lx - enh_cv.fx) / n, qy = (ly - enh_cv.fy) / n;   /* the 1x pixel the layer pixel lies in */
+        if (qx < clip[0] || qy < clip[1] || qx >= clip[2] || qy >= clip[3]) continue;
+        vec_put_seg(seg, lx, ly, emit_buf[i].c);
+    }
+    emit_n = 0;
+}
+
+static void emit_block(int x, int y, int ox, int oy, u8 c)
+{
+    const int n = enh_cv.n, lx0 = enh_cv.fx + x * n + ox, ly0 = enh_cv.fy + y * n + oy;
+    for (int ky = 0; ky < n; ky++)
+        for (int kx = 0; kx < n; kx++) emit_add(lx0 + kx, ly0 + ky, c);
+}
+
+void enh_cap_shift(int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg)
+{
+    if (w > 8 || h > 8) { op(arg); return; }
+    EnhRectSnap *s = enh_rect_snap(x, y, w, h);
+    if (!s) { op(arg); return; }
+    static u8 v0[2][64], wr[2][64];
+    x = s->x; y = s->y; w = s->w; h = s->h;
+    for (int pass = 0; pass < 2; pass++) {                    /* the op over background 0, then over FFh: a pixel it wrote reads the same both times */
+        for (int p = 0; p < s->np; p++)
+            for (int j = 0; j < h; j++) memset(seg_ptr(s->seg[p]) + (y + j) * 320 + x, pass ? 0xFF : 0x00, (size_t)w);
+        op(arg);
+        for (int p = 0; p < s->np; p++)
+            for (int j = 0; j < h; j++) {
+                const u8 *pg = seg_ptr(s->seg[p]) + (y + j) * 320 + x;
+                for (int i = 0; i < w; i++) {
+                    if (!pass) v0[p][j * w + i] = pg[i];
+                    else wr[p][j * w + i] = (u8)(v0[p][j * w + i] == pg[i]);
+                }
             }
+        snap_io(s, false);                                    /* the rectangle as it was */
+    }
+    for (int p = 0; p < s->np; p++) {
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+                if (wr[p][j * w + i]) emit_block(x + i, y + j, ox, oy, v0[p][j * w + i]);
+        emit_all(s->seg[p], clip);
+    }
+    snap_free(s);
+}
+
+void enh_win_shift(u16 seg, int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg)
+{
+    EnhRectSnap *s = rect_snap(x, y, w, h, true);   /* the statics draw art, dots and hr lines, never 3D pixels */
+    if (!s) { op(arg); return; }
+    x = s->x; y = s->y; w = s->w; h = s->h;
+    op(arg);
+    const int p = s->np == 2 && seg != s->seg[0] ? 1 : 0;
+    Shadow *sh; u16 *l3, *lv; u8 *l3n;
+    plane_of(p, s->np, &sh, &l3, &lv, &l3n);
+    const u8 *pg = seg_ptr(s->seg[p]);
+    const int n = s->n, ln = w * n;
+    for (int j = 0; j < h; j++)                               /* 1x pixels the ops wrote that show as themselves (art, a dot, a colour-0 line): N x N blocks */
+        for (int i = 0; i < w; i++) {
+            const int o = (y + j) * 320 + x + i;
+            if (pg[o] == s->pg[p][j * w + i] && !memcmp(&sh[o], &s->rec[p][j * w + i], sizeof(Shadow))) continue;
+            if (sh[o].src == SRC_VECHR) continue;             /* an hr line's footprint: its layer pixels below */
+            emit_block(x + i, y + j, ox, oy, pg[o]);
+        }
+    if (lv)
+        for (int j = 0; j < h * n; j++) {                     /* vector-layer pixels the ops wrote (the hr lines) */
+            const size_t at = (size_t)(enh_cv.fy + y * n + j) * enh_cv.lw + (size_t)(enh_cv.fx + x * n);
+            for (int i = 0; i < ln; i++) {
+                const u16 v = lv[at + i];
+                if ((v & 0x100) && v != s->lv[p][(size_t)j * ln + i]) emit_add(enh_cv.fx + x * n + i + ox, enh_cv.fy + y * n + j + oy, (u8)v);
+            }
+        }
+    snap_io(s, false);
+    emit_all(seg, clip);
+    snap_free(s);
+}
+
+/* the map cache: the rectangle of `seg` with every pixel as 3D-layer pixels (a 3D write keeps its layer pixels, anything else becomes its 1x value N x N) */
+bool enh_map_cache_grab(EnhMapCache *c, u16 seg, int x, int y, int w, int h)
+{
+    const int n = enh_cv.n;
+    if (x < 0 || y < 0 || x + w > 320 || y + h > 200 || w <= 0 || h <= 0 || !l3d_work || !l3n_work) return false;
+    const size_t a = (size_t)w * h, la = a * (size_t)n * (size_t)n;
+    if (c->cap < la || c->pcap < a) {
+        free(c->pg); free(c->l3); free(c->l3n);
+        c->pg = malloc(a); c->l3 = malloc(la * sizeof(u16)); c->l3n = malloc(la);
+        if (!c->pg || !c->l3 || !c->l3n) { free(c->pg); free(c->l3); free(c->l3n); c->pg = NULL; c->l3 = NULL; c->l3n = NULL; c->cap = c->pcap = 0; return false; }
+        c->cap = la; c->pcap = a;
+    }
+    const bool shown = plane_shown(seg);
+    const Shadow *sh = shown ? sh_shown : sh_work;
+    const u16 *l3 = shown ? l3d_shown : l3d_work;
+    const u8 *l3n = shown ? l3n_shown : l3n_work;
+    const u8 *pg = seg_ptr(seg);
+    c->w = w; c->h = h; c->n = n;
+    const int lw = w * n;
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) {
+            const int o = (y + j) * 320 + x + i;
+            const u8 b = pg[o];
+            c->pg[j * w + i] = b;
+            const bool d3 = sh[o].src == SRC_3D && sh[o].val == b;
+            for (int ky = 0; ky < n; ky++) {
+                const size_t at = (size_t)(enh_cv.fy + (y + j) * n + ky) * enh_cv.lw + (size_t)(enh_cv.fx + (x + i) * n);
+                const size_t co = (size_t)(j * n + ky) * lw + (size_t)i * n;
+                for (int kx = 0; kx < n; kx++) {
+                    const u16 v = l3[at + kx];
+                    const bool lay = d3 && (v & 0x100);
+                    c->l3[co + kx] = lay ? v : (u16)(0x300 | b);
+                    c->l3n[co + kx] = lay ? l3n[at + kx] : 0;
+                }
+            }
+        }
+    return true;
+}
+
+void enh_map_cache_put(const EnhMapCache *c, u16 seg, int x, int y, int w, int h, int sxl, int syl)
+{
+    const int n = enh_cv.n;
+    if (!c->pg || c->n != n || x < 0 || y < 0 || x + w > 320 || y + h > 200 || !l3d_work || !lvec_work || !l3n_work) return;
+    const bool shown = plane_shown(seg);
+    Shadow *sh = shown ? sh_shown : sh_work;
+    u16 *l3 = shown ? l3d_shown : l3d_work, *lv = shown ? lvec_shown : lvec_work;
+    u8 *l3n = shown ? l3n_shown : l3n_work;
+    u8 *pg = seg_ptr(seg);
+    const int lw = c->w * n, lh = c->h * n;
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) {
+            int cu = i * n + n / 2 + sxl, cv = j * n + n / 2 + syl;   /* the 1x value: the cache pixel under the block's centre */
+            cu = cu < 0 ? 0 : cu >= lw ? lw - 1 : cu;
+            cv = cv < 0 ? 0 : cv >= lh ? lh - 1 : cv;
+            const u8 b = c->pg[(cv / n) * c->w + cu / n];
+            const int o = (y + j) * 320 + x + i;
+            pg[o] = b;
+            sh[o].src = SRC_3D; sh[o].val = b; sh[o].under = 0; sh[o].under3d = 0;
+            for (int ky = 0; ky < n; ky++) {
+                const size_t at = (size_t)(enh_cv.fy + (y + j) * n + ky) * enh_cv.lw + (size_t)(enh_cv.fx + (x + i) * n);
+                int sv = j * n + ky + syl;
+                sv = sv < 0 ? 0 : sv >= lh ? lh - 1 : sv;
+                for (int kx = 0; kx < n; kx++) {
+                    int su = i * n + kx + sxl;
+                    su = su < 0 ? 0 : su >= lw ? lw - 1 : su;
+                    l3[at + kx] = c->l3[(size_t)sv * lw + su];
+                    l3n[at + kx] = c->l3n[(size_t)sv * lw + su];
+                    lv[at + kx] = 0;
+                }
+            }
+        }
 }
 
 /* ---------------------------------------------------------------- page-to-page blits (S3.2 fix) */
