@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "flight/fl.h"
+#include "enhanced/mapmfd.h"   /* ENH: S4.6 */
 
 #define S(o) ((s16)DSW(o))
 #define U(o) DSW(o)
@@ -343,8 +344,10 @@ void wpn_proj_update_all(void)
                 msg_cat_post(0x3EA5, wp);
             }
         }
-        if (i < 8 && U(p + 0xE) != 0 && (DSB(0x3D60) & 1))
+        if (i < 8 && U(p + 0xE) != 0 && (DSB(0x3D60) & 1)) {
+            if (enh_map_log_on) enh_map_tag(ENH_OBJ_PROJ, i);   /* ENH: S4.6, the blip is projectile i's */
             mfd_map_plot(U(p), U(p + 2), 0x11, 1);   /* PORT: the 4th argument is not pushed: 8548 reads 671A's saved SI (the caller's SI, not 0 in the game) */
+        }
     }
     memmove(DSP(0xB2A2), DSP(0xB290), 16);
 }

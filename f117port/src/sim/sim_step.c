@@ -6,6 +6,7 @@
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
 #include "sim/sim_stubs.h"
+#include "enhanced/mapmfd.h"   /* ENH: S4.6 */
 
 static u16 pilot_w(int off) { return *(u16 *)(far_mp(ds_far(0x98F4)) + off); }
 #define SITE(i)  ((u16)(0xB2A2 + 16 * (u16)(i)))
@@ -123,16 +124,20 @@ void sim_frame_step(void)
         for (int i = 0; i < 2; i++) {
             if (DSW(0x9B04) & (0x4000 >> i)) continue;
             u16 site = SITE(DSW((u16)(0xE2DA + 0x12 * i)));
-            if (mfd_map_to_screen((s16)DSW(site + 2), (s16)DSW(site + 4), &wsx, &wsy))
+            if (mfd_map_to_screen((s16)DSW(site + 2), (s16)DSW(site + 4), &wsx, &wsy)) {
                 cockpit_keyblit(wsx - 1, wsy - 1, 0x104, 0, 4, 4, 0);
+                if (enh_map_log_on) enh_map_log_key(0, wsx - 1, wsy - 1, 0x104, 0, 4, 4, 0);   /* ENH: S4.6 */
+            }
         }
         if (DSW(0xDFDC) == 0x14) mfd_map_route();
     }
     hud_threat_update();
     ai_update_units();
     wpn_proj_update_all();
-    if (DSW(0x365E) != 0 && DSW(0xDEDA) == 0)
+    if (DSW(0x365E) != 0 && DSW(0xDEDA) == 0) {
         cockpit_keyblit(sx - 1, sy - 1, 0x100 | (((s16)(DSW(0x2DEE) + 0x1000) >> 11) & 0x1C), 4, 4, 4, 0);
+        if (enh_map_log_on) enh_map_log_key(1, sx - 1, sy - 1, 0x100 | (((s16)(DSW(0x2DEE) + 0x1000) >> 11) & 0x1C), 4, 4, 4, 0);   /* ENH: S4.6 */
+    }
     wpn_cm_tick();
     wpn_gun_update();
     fx_smoke_update();

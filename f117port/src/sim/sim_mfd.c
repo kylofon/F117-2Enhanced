@@ -8,6 +8,7 @@
 #include "sim/sim_priv.h"
 #include "sim/sim_stubs.h"
 #include "enhanced/enh_canvas.h"   /* ENH: S3.2 */
+#include "enhanced/mapmfd.h"       /* ENH: S4.6 */
 
 #define SITES 0xB2A2                                     /* 16-byte site records */
 #define SITE(i) ((u16)(SITES + 16 * (i)))
@@ -33,6 +34,7 @@ int mfd_map_sy(int wy)
 /* 0000:8548 mfd_map_plot: a dot (2x2 when `big`) in the map window; 1 when the point is outside the window */
 int mfd_map_plot(int wx, int wy, int color, int big)
 {
+    if (enh_map_log_on) enh_map_log_plot(wx, wy, color, big);   /* ENH: S4.6 */
     if (DSW(0xDEDA) || DSW(0x365E) == 0) return 0;
     int sx = mfd_map_sx(wx), sy = mfd_map_sy(wy);
     if (sx < (s16)DSW(0xDE94) || sx >= (s16)DSW(0xE302) - 1 || sy < (s16)DSW(0xDE96) || sy >= (s16)DSW(0xE444) - 1) return 1;
@@ -65,6 +67,7 @@ void mfd_map_line(int wx0, int wy0, int wx1, int wy1)
 /* 0000:863C mfd_map_arc: an arc of a circle of radius r world units, angles in 1/256 turn, dots or a solid polyline */
 void mfd_map_arc(int cx, int cy, int r, int color, int solid, int a0, int a1)
 {
+    if (enh_map_log_on) enh_map_log_arc(cx, cy, r, color, solid, a0, a1);   /* ENH: S4.6 */
     int prev_x = 0, prev_y = 0;
     a0 = (s16)a0; a1 = (s16)a1;
     if (a1 < a0) a0 = (s16)((a0 & 0xFF) | (((a0 >> 8) + 1) & 0xFF) << 8);     /* the original adds 1 to the HIGH byte of a0 (not a1): then the loop does not run */
@@ -79,11 +82,13 @@ void mfd_map_arc(int cx, int cy, int r, int color, int solid, int a0, int a1)
         else mfd_map_plot(px, py, color, 0);
         prev_x = px; prev_y = py;
     }
+    if (enh_map_log_on) enh_map_log_arc_end();   /* ENH: S4.6 */
 }
 
 /* 0000:94A5 mfd_map_route: player -> current waypoint in white, the remaining legs in green */
 void mfd_map_route(void)
 {
+    if (enh_map_log_on) enh_map_log_route();   /* ENH: S4.6 */
     if (DSW(0xDEDA)) return;
     int px = (s16)DSW(0xC0A4), py = (s16)DSW(0xC0B2);
     gfx_set_fg(0xF);
@@ -104,12 +109,14 @@ void mfd_map_save_bg(void)
     int page = *(s16 *)ctx_ptr(DSB(0x4088) ? CTX_P1_PTR : CTX_P0_PTR);
     blit_rect(page, 0x4A, 0x6E, *(s16 *)ctx_ptr(CTX_P2_PTR), 0x4A, 0x6E, 0x4D, 0x3C);
     if (enh_shadow_on) enh_window_save(0x4A, 0x6E, 0x4D, 0x3C);   /* ENH: S3.2, the records and layers go with the backup */
+    if (enh_map_log_on) enh_map_log_reset();                       /* ENH: S4.6, the map's drawing log starts again */
 }
 void mfd_map_restore_bg(void)
 {
     int page = *(s16 *)ctx_ptr(DSB(0x4088) ? CTX_P1_PTR : CTX_P0_PTR);
     blit_rect(*(s16 *)ctx_ptr(CTX_P2_PTR), 0x4A, 0x6E, page, 0x4A, 0x6E, 0x4D, 0x3C);
     if (enh_shadow_on) enh_window_restore(0x4A, 0x6E, 0x4D, 0x3C);   /* ENH: S3.2 */
+    if (enh_map_log_on) enh_map_log_reset();                          /* ENH: S4.6 */
 }
 
 /* 0000:8387 mfd_map_redraw: the map around the aircraft (cellx, celly); the terrain is render3d's map_render_terrain (119C) */

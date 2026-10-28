@@ -2,6 +2,7 @@
  * patrol and formation, the combat table DS:3A8C, the cannon, the terrain pull-up, the integration, landing and roll-out, endurance, the map blips, the radar
  * schedule, the scramble of parked units), 62D0 ai_unit_radar and 65D4 ai_unit_takeoff. Translated from port/notes/s38/s38_ref.py (0 mismatches). */
 #include "flight/fl.h"
+#include "enhanced/mapmfd.h"   /* ENH: S4.6 */
 
 #define S(o) ((s16)DSW(o))
 #define U(o) DSW(o)
@@ -262,7 +263,10 @@ static void steer(int u, u16 un, u16 a, int mode, u16 tx, u16 ty, u16 tz)
     if (DSB(un + 0x18) & 2) {
         int c = 0x29;
         if (u == 0 && S(0xE2D8) >= 5 && (st & 1)) c = 0;
-        if (U(0x98DE) != 0 || u == 0) mfd_map_plot(U(un + 2), U(un + 4), c, 1);
+        if (U(0x98DE) != 0 || u == 0) {
+            if (enh_map_log_on) enh_map_tag(ENH_OBJ_UNIT, u);   /* ENH: S4.6, the blip is unit u's */
+            mfd_map_plot(U(un + 2), U(un + 4), c, 1);
+        }
         if ((s16)st % (rate << 4) == (s16)((((u & 8) >> 3) + 2 * (u & 7)) * rate))
             if (!(DSB(un + 0x18) & 0x20)) ai_unit_radar(u);
     }

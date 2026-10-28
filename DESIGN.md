@@ -491,7 +491,7 @@ Everything else (sim state, explosion frame `[9D0C]`, fire puffs, messages, dama
 ### 4.4 HUD/MFDs, effects between steps
 The HUD is re-drawn in every display pass from the lerped attitude/position: ladder, horizon, heading tape, ADI, target
 boxes and the velocity vector move smoothly (in 1× steps, 2.6); digits show values computed from the lerped fields or A_k.
-MFD pages redraw only when the sim changes them, so they update at the step rate, as today. Rotating parts, missiles,
+MFD pages redraw only when the sim changes them, so they update at the step rate, as today (S4.6: except the map MFD's moving symbols, 4.11). Rotating parts, missiles,
 tracers, smoke and the wreck follow 4.3; explosion and puff animation frames stay per step (they are art frames).
 
 ### 4.5 Input and sound
@@ -676,6 +676,50 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 * **Cost.** Reading the objects once per frame (about 3 KB) and writing them per pass is lost in the noise: `port/notes/e43/profile.py` at 1920 x 1080,
   N = 4, wide, 804 refreshes, ms per refresh avg / p95: day 5.51 / 6.95 (before S4.2: 5.58 / 6.96), smooth + true night 13.23 / 16.67 (13.06 / 16.28).
 
+### 4.11 As built (S4.6): the map MFD between steps
+* **Why it stepped (root cause).** The original draws the map's moving symbols in the **sim step**, not in the render (`sim_frame_step`, 39C4 ff.; `sim/sim_step.c`):
+  `mfd_map_restore_bg` (9770) copies the window back from the backup page 2, then the two target markers (`cockpit_keyblit` 0x104), the route (`mfd_map_route`
+  94A5, its first leg from the aircraft), the detection arc (`hud_threat_update` -> `mfd_map_arc` 863C), the unit blips (`ai_update_units`, 2x2 colour 29h) and
+  the missile blips (`wpn_proj_update_all`, colour 11h, blinking) and last the aircraft marker (one of 8 heading sprites of `256PIT.PIC`) are drawn into the draw
+  page. The terrain (`map_render_terrain` 119C via `mfd_map_redraw` 8387) is drawn only when the marker leaves the window (the map recentres, the aircraft
+  32 pixels behind the centre) or the zoom changes, then saved to the backup. `view_frame` only copies the window to the other page. A display pass
+  (4.2) re-runs the render on A_k, so every refresh showed step k-1's drawing: the marker and the blips moved at the step rate, by whole original pixels
+  (N x N layer pixels). How visible depends on the zoom (`[4080]` 2..9, an original pixel = 2^(10 - z) cells): at 380 kt the aircraft moves about 2.3 cells
+  a step, so 0.01 pixel a step at zoom 2 and 1.15 pixels (a 4-layer-pixel jump at N = 4, ~10 times a second) at zoom 9. Nothing in the original
+  updates the map less often than once a step (no every-Nth-frame logic); the picture is north-up, it does not rotate or scroll.
+* **The log (live).** With the stream on (`enh_fps_on`; never with `--fps off` / `--classic`) the step's map drawing is logged in order (`enhanced/mapmfd.c`):
+  hooks at `mfd_map_save_bg` / `restore_bg` (the log starts again: what was drawn before is in the backup or erased; also covers `det_site_radar_update`'s restore-plot-save
+  of a newly detected site), `mfd_map_plot` (world cells, colour, size; tagged with its unit / projectile slot by a hook in front of the plot in `fl_ai.c` /
+  `fl_weapons.c`), `mfd_map_route`, `mfd_map_arc` (its own plots not logged), and the two `cockpit_keyblit` calls of `sim_frame_step` (target marker, aircraft
+  marker: with BA10 / C02A / C0A4 / C0B2 / 2DEE at that moment). At the frame start (`enh_map_frame`, after `enh_interp_frame`) the log of step k-1 becomes
+  this frame's, the aircraft marker keeps its last two steps.
+* **The replay (per pass).** When the frame interpolates, the map is shown (`[365E]`, `[DEDA]` = 0) and the log is complete, every display pass
+  (`enh_map_apply`, after `enh_interp_apply`, before `view_frame`) copies the window back from the backup (`mfd_map_restore_bg`, with the S3.2 window store) and
+  replays the log: target markers, route, arc as logged (the route's first leg from the marker's whole cell); a tagged blip at its object's cells lerped
+  unrounded (`enh_interp_cells`, the S4.2 match: slot + type, no jump; else as logged); the aircraft marker between its last two steps' positions (the
+  cells with the fraction 39C4's rounding dropped, so the whole pixel is the step's), with the sprite of the lerped heading (shortest arc). Positions are
+  the unrounded `mfd_map_sx / sy` (x / 2^s + 70h, 3/4 y / 2^s + 8Bh) of **this frame's** map, so across a recentre the marker keeps moving and the map jumps
+  as in the original. Held (drawn as logged) when the last two markers are not consecutive steps, more than 32 cells apart, or either end is outside the
+  window.
+* **Sub-pixel symbols** (`enh_cap_shift`, `enh_canvas.c`): the 1x op (the `cockpit_keyblit`, the `hud_pixel`s of a blip) runs at the whole pixel over two
+  sentinel backgrounds (00h, FFh; a pixel it wrote reads the same both times, so a sprite pixel that equals the map below is found too), the rectangle's pages,
+  records and layers are put back, and each written pixel becomes an N x N vector-layer block moved by the fraction (`floor(frac N)` layer pixels), clipped to
+  the window: the art is the original sprite, at a layer-pixel position. The blocks are SRC_VECHR records, so the terrain (3D layer) shows where no block lands.
+  At N = 1 the op runs at the lerped whole pixel.
+* **Alpha 1.** The marker and the blips keep their fraction at alpha 1, the canonical frame shows the whole pixel: so a refresh at alpha 1 is a pass, not the
+  canonical render, while the map is redrawn (`enh_map_active`, S4.3 reuse off in the views that are not extended; `--no-wide` / the second cockpit view by
+  day ~5 ms instead of ~1). A frame that holds (4.8) shows the canonical frame: up to one original pixel from the fraction, once (view change, start, jump).
+* **Not changed:** the terrain, the recentring and zoom (the map jumps when the marker reaches the edge, as in the original), the 8 marker sprites (it
+  turns in 45-degree steps), the blink of the missile blips and the detection arc's growth (per step), the 1x look of the static markers and the route's 1x
+  endpoints.
+* **Tests.** `enh_fps_jerk` (ctest): per pass o-lines `mapown` / `mapunit` / `mapproj` (the continuous position in 1/64 pixel and the layer pixel drawn, at
+  alpha, 0 and 1) checked like the S4.2 objects; the exit line `display-map:` has a **replay check** (`F117_MAP_CHECK=1` or `--fps-trace`: once per frame the log
+  replayed as logged must give the window A_k shows, i.e. nothing the step drew is missed). View sweep: 154 frames redrawn, marker 153 frames, blips 330 + 19
+  object-frames, 0 uneven / backward / not ending on F_k, replay 154 / 0 differ, tags off 0. New zoomed run (banked flight, `z` x 7 = zoom 9): 197 frames, the
+  marker moves 115 original pixels with one recentre, 183 frames 0 uneven (worst 7.3 % of the mean step) / 0 backward, replay 197 / 0 differ. `enh_one_render`:
+  the wide runs compare the map redraw of the S4.1 and S4.3 passes (identical); the two `--no-wide` reuse runs press F3 at 62 s (the scope in the left MFD), since
+  with the map redrawn a refresh at alpha 1 is no longer the canonical render. `sim_interp_equal` unchanged (the log is not sim state).
+
 ## 5 (d) Hooks, `--classic`, tests
 
 ### 5.1 `ENH:` hooks (each a guarded call of 1–3 lines; bodies live in `src/enhanced/`)
@@ -719,6 +763,7 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 | `main` | `main.c` | `enh_env_args()` before anything runs | S2.4 |
 | `main` test dispatch | `main.c` | `--interp-test` -> `enh_interp_selftest()` | S4.2 |
 | `view_frame` case 0x84 | `sim/sim_view.c` | lerp the ring pose in sandbox (as built: no hook, the pass's copy of the slot is lerped, 4.10) | S4.2 |
+| `mfd_map_save_bg / restore_bg / plot / route / arc`, `sim_frame_step` (target and aircraft markers), `ai_update_units`, `wpn_proj_update_all` | `sim/sim_mfd.c`, `sim/sim_step.c`, `flight/fl_ai.c`, `flight/fl_weapons.c` | `enh_map_log_*` / `enh_map_tag` (the step's map drawing logged for the display passes, 4.11) | S4.6 |
 
 ### 5.2 `--classic`
 `enh_parse_arg("--classic")` clears every option; each hook is `if (enh.<option>) …` (or `enh_active()`), so with classic

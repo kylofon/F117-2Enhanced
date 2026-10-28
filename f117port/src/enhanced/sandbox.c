@@ -11,6 +11,7 @@
 #include "enhanced/enh_canvas.h"
 #include "enhanced/enhanced.h"
 #include "enhanced/interp.h"
+#include "enhanced/mapmfd.h"
 #include "host.h"
 #include "enhanced/wide.h"
 #include "gen/module_simflow.h"
@@ -149,6 +150,7 @@ static void report_display(FILE *f)
             n_refresh_div[1], n_refresh_div[2], n_refresh_div[3], n_rate_switch, est_cost / 1e6, (double)base_period() / 1e6);
     fprintf(f, "display-begin: %llu refreshes at a frame start\n", n_begin_refresh);
     enh_interp_stats(f);   /* S4.2 */
+    enh_map_stats(f);      /* S4.6 */
     fprintf(f, "display-reuse: %llu refreshes showed the canonical render (alpha 1, not extended)\n", n_reused);
     if (enh.fps_check) fprintf(f, "fps-check: %llu refreshes compared, %llu differ, %llu pixels differ\n", chk_refresh, chk_diff_refresh, chk_diff_px);
     const double r = (double)n_refresh, secs = stream_t1 > stream_t0 ? (double)(stream_t1 - stream_t0) / 1e9 : 0;
@@ -319,6 +321,7 @@ void enh_frame_begin(void)
     if (!enh_sbx) {                          /* S4.1: the fields F_k, and whether display refreshes show this frame */
         vg_frame++;
         enh_interp_frame();
+        enh_map_frame();                                      /* S4.6 */
         const bool cpic = DSW(0x2E48) != DSW(0xC07A);   /* view_frame loads a cockpit picture (a file read: no main display pass) */
         stream = enh_fps_on() && enh_canvas_active() && !cpic;
         if (stream) {
@@ -464,7 +467,8 @@ static void refresh(double alpha, bool before_flip)
     const Uint64 t0 = SDL_GetTicksNS();
     r_snap = r_render = r_compose = 0;
     t_last_refresh = dclock();
-    const bool reused = before_flip && alpha >= 1.0 && !stream_wide && !enh.mfd_probe[0] && reuse_canonical();
+    const bool reused = before_flip && alpha >= 1.0 && !stream_wide && !enh.mfd_probe[0] && !enh_map_active() && reuse_canonical();   /* S4.6: not when the map's symbols
+                                                              * are redrawn (their alpha-1 position keeps its sub-pixel fraction, the canonical frame's does not) */
     if (!reused) display_pass(0, alpha, PASS_DISP);
     if (!reused && test_cost_ns()) { const Uint64 e = SDL_GetTicksNS() + test_cost_ns(); while (SDL_GetTicksNS() < e) {} }   /* test aid: a slower machine */
     const Uint64 d = SDL_GetTicksNS() - t0;
@@ -592,8 +596,10 @@ static void display_pass(int v, double alpha, PassKind kind)
     if (enh_wide_pass) DSW(0x2E48) = DSW(0xC07A);             /* S3.4 fix 4: the cockpit picture counts as loaded (no file read in a pass); only the pass's 3D layer is used */
     test_view(v);
     if (kind >= PASS_WIDE_DISP) enh_interp_apply(alpha);   /* S4.1: the own aircraft at alpha (DESIGN 4.3) */
+    if (kind >= PASS_WIDE_DISP) enh_map_apply(alpha);      /* S4.6: the map MFD's symbols at alpha (DESIGN 4.11) */
     view_frame();                                             /* the faithful frame's render, as frame_loop_body runs it */
     if (disp_pass && trace_f) enh_interp_trace(trace_f, vg_frame, frame_refreshes + 1, alpha, (double)(t_last_refresh - stream_t0) / 1e6);   /* S4.1 test aid: the camera of this refresh */
+    if (disp_pass && trace_f) enh_map_trace(trace_f, vg_frame, frame_refreshes + 1);   /* S4.6 */
     hud_overlay_frame();
     if (DSW(0xC07A) == 0) {
         hud_draw_far();

@@ -7,7 +7,9 @@ it once (the wide pass composes its own picture) and, at alpha 1 in a view that 
 Runs (headless, virtual clock: every run is the same machine run; --fps-test 4 --fps-check, --render-scale 2):
   sweep      the real-path view sweep of r3d_hr_wide_realpath (the home airbase, every view: extended, the second cockpit view, the frame-only views), 16:9 window
   night      the airbase in banked flight (F117_TEST_POSE) with --smooth-shading --true-night and the night palette, 16:9 window
-  reuse      the same banked flight with --no-wide (canvas = frame): the 4th refresh of a frame (alpha 1) is the canonical render, compared with a pass
+  reuse      the same banked flight with --no-wide (canvas = frame): the 4th refresh of a frame (alpha 1) is the canonical render, compared with a pass;
+             F3 at 62 s shows the scope in the left MFD (S4.6: while the map MFD's symbols are redrawn per refresh, a refresh at alpha 1 is a pass, since the
+             marker keeps its sub-pixel position there and the canonical frame's is the whole pixel; the map itself is compared in the other runs)
   reuse_n    the same at night with smooth shading
   each: 0 refreshes that differ, every refresh compared, 0 forbidden calls; reuse runs: a quarter of the refreshes reused.
 Then the rate fallback, in real time (display clock, --fps 60): with F117_TEST_REFRESH_MS=20 (every pass 20 ms slower, as on a slow machine) most refreshes
@@ -49,6 +51,9 @@ def run(exe, game, work, name, window, extra, keys='1:31,2:03,11:39', frames=200
     return p.stdout
 
 
+REUSE_KEYS = '1:31,2:03,11:39,62:3d'   # S4.6: F3, the left MFD shows the scope (the map's symbols are not redrawn per refresh then)
+
+
 def field(out, pat):
     m = re.search(pat, out)
     return [int(x) for x in m.groups()] if m else None
@@ -67,8 +72,8 @@ def main():
     runs = [
         ('sweep', '1280x720', '--fps-test 4 --fps-check', dict(keys=WR.KEYS, frames=WR.FRAMES, select=str(WR.SELECT), pose='')),
         ('night', '1280x720', '--fps-test 4 --fps-check --smooth-shading --true-night', dict(night=True)),
-        ('reuse', '1280x720', '--fps-test 4 --fps-check --no-wide', {}),
-        ('reuse_n', '1280x720', '--fps-test 4 --fps-check --no-wide --smooth-shading --true-night', dict(night=True)),
+        ('reuse', '1280x720', '--fps-test 4 --fps-check --no-wide', dict(keys=REUSE_KEYS)),
+        ('reuse_n', '1280x720', '--fps-test 4 --fps-check --no-wide --smooth-shading --true-night', dict(night=True, keys=REUSE_KEYS)),
     ]
     for name, win, extra, kw in runs:
         out = run(exe, game, work, name, win, extra, **kw)

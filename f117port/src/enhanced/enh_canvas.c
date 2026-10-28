@@ -869,7 +869,11 @@ static void probe_flip(void)
 
 /* A vector layer pixel (layer coordinates) of an hr emitter. The page pixel whose block it lies in becomes a vector record whose "nothing emitted" look is what
  * was under it (SRC_VECHR) unless it is one already, so an hr line shows where the 1x line did not reach and the 1x footprint shows nothing where it did. */
-void enh_vec_put(int lx, int ly, u8 c)
+static void vec_put_seg(u16 seg, int lx, int ly, u8 c);
+
+void enh_vec_put(int lx, int ly, u8 c) { vec_put_seg(video_draw_seg(), lx, ly, c); }
+
+static void vec_put_seg(u16 seg, int lx, int ly, u8 c)
 {
     const int n = enh_cv.n;
     if (!lvec_work || lx < 0 || ly < 0 || lx >= enh_cv.lw || ly >= enh_cv.lh) return;
@@ -879,7 +883,7 @@ void enh_vec_put(int lx, int ly, u8 c)
     }
     int px = (lx - enh_cv.fx) / n, py = (ly - enh_cv.fy) / n;
     if (px > 319 || py > 199) return;
-    const u16 seg = video_draw_seg(), off = (u16)(py * 320 + px);
+    const u16 off = (u16)(py * 320 + px);
     u16 *lv = plane_shown(seg) ? lvec_shown : lvec_work;
     if (enh_page_tracked(seg)) {
         Shadow *r = plane_shown(seg) ? &sh_shown[off] : &sh_work[off];
@@ -894,6 +898,89 @@ void enh_vec_put(int lx, int ly, u8 c)
         }
     }
     lv[(size_t)ly * enh_cv.lw + lx] = (u16)(0x100 | c);
+}
+
+/* ---------------------------------------------------------------- moved 1x symbols (S4.6) */
+
+enum { CAP_MAX = 8, CAP_LMAX = CAP_MAX * MAX_SIDE / 320 + 8 };   /* a rectangle of at most 8 x 8 page pixels, N <= 25 */
+
+typedef struct {
+    u8 pg[2][CAP_MAX * CAP_MAX];
+    Shadow rec[2][CAP_MAX * CAP_MAX];
+    u16 l3[2][CAP_LMAX * CAP_LMAX], lv[2][CAP_LMAX * CAP_LMAX];
+    u8 l3n[2][CAP_LMAX * CAP_LMAX];
+} CapSave;
+
+static void cap_io(CapSave *s, bool save, const u16 seg[2], int np, int x, int y, int w, int h)
+{
+    const int n = enh_cv.n, ln = w * n;
+    for (int p = 0; p < np; p++) {
+        u8 *pg = seg_ptr(seg[p]);
+        Shadow *sh = p == 0 ? sh_shown : sh_work;   /* page 0 = the shown plane, page 1 = the work plane (plane_shown) */
+        u16 *l3 = p == 0 ? l3d_shown : l3d_work, *lv = p == 0 ? lvec_shown : lvec_work;
+        u8 *l3n = p == 0 ? l3n_shown : l3n_work;
+        if (np == 1) { sh = sh_work; l3 = l3d_work; lv = lvec_work; l3n = l3n_work; }   /* page 1 aliases page 0: all work */
+        for (int j = 0; j < h; j++) {
+            const int o = (y + j) * 320 + x;
+            if (save) { memcpy(s->pg[p] + j * w, pg + o, (size_t)w); memcpy(s->rec[p] + j * w, sh + o, (size_t)w * sizeof(Shadow)); }
+            else { memcpy(pg + o, s->pg[p] + j * w, (size_t)w); memcpy(sh + o, s->rec[p] + j * w, (size_t)w * sizeof(Shadow)); }
+        }
+        if (!l3 || !lv || !l3n) continue;
+        for (int j = 0; j < h * n; j++) {
+            const size_t at = (size_t)(enh_cv.fy + y * n + j) * enh_cv.lw + (size_t)(enh_cv.fx + x * n);
+            if (save) { memcpy(s->l3[p] + j * ln, l3 + at, (size_t)ln * sizeof(u16)); memcpy(s->lv[p] + j * ln, lv + at, (size_t)ln * sizeof(u16)); memcpy(s->l3n[p] + j * ln, l3n + at, (size_t)ln); }
+            else { memcpy(l3 + at, s->l3[p] + j * ln, (size_t)ln * sizeof(u16)); memcpy(lv + at, s->lv[p] + j * ln, (size_t)ln * sizeof(u16)); memcpy(l3n + at, s->l3n[p] + j * ln, (size_t)ln); }
+        }
+    }
+}
+
+static void cap_fill(const u16 seg[2], int np, int x, int y, int w, int h, u8 v)
+{
+    for (int p = 0; p < np; p++)
+        for (int j = 0; j < h; j++) memset(seg_ptr(seg[p]) + (y + j) * 320 + x, v, (size_t)w);
+}
+
+void enh_cap_shift(int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg)
+{
+    static CapSave sv;
+    static u8 v0[2][CAP_MAX * CAP_MAX], wr[2][CAP_MAX * CAP_MAX];
+    const int n = enh_cv.n;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > 320) w = 320 - x;
+    if (y + h > 200) h = 200 - y;
+    if (w <= 0 || h <= 0 || w > CAP_MAX || h > CAP_MAX || n > 25 || !lvec_work || !l3d_work || !l3n_work) { op(arg); return; }
+    const u16 seg[2] = { 0xA000, video_page_seg(1) };
+    const int np = seg[1] == 0 || seg[1] == 0xA000 ? 1 : 2;
+    cap_io(&sv, true, seg, np, x, y, w, h);
+    cap_fill(seg, np, x, y, w, h, 0x00);                      /* the op over background 0 ... */
+    op(arg);
+    for (int p = 0; p < np; p++)
+        for (int j = 0; j < h; j++) memcpy(v0[p] + j * w, seg_ptr(seg[p]) + (y + j) * 320 + x, (size_t)w);
+    cap_io(&sv, false, seg, np, x, y, w, h);
+    cap_fill(seg, np, x, y, w, h, 0xFF);                      /* ... and over FFh: a pixel it wrote reads the same both times */
+    op(arg);
+    for (int p = 0; p < np; p++)
+        for (int j = 0; j < h; j++) {
+            const u8 *pg = seg_ptr(seg[p]) + (y + j) * 320 + x;
+            for (int i = 0; i < w; i++) wr[p][j * w + i] = (u8)(v0[p][j * w + i] == pg[i]);
+        }
+    cap_io(&sv, false, seg, np, x, y, w, h);                  /* the rectangle as it was */
+    for (int p = 0; p < np; p++)
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++) {
+                if (!wr[p][j * w + i]) continue;
+                const u8 c = v0[p][j * w + i];
+                const int lx0 = enh_cv.fx + (x + i) * n + ox, ly0 = enh_cv.fy + (y + j) * n + oy;
+                for (int ky = 0; ky < n; ky++)
+                    for (int kx = 0; kx < n; kx++) {
+                        const int lx = lx0 + kx, ly = ly0 + ky;
+                        if (lx < enh_cv.fx || ly < enh_cv.fy) continue;
+                        const int qx = (lx - enh_cv.fx) / n, qy = (ly - enh_cv.fy) / n;   /* the 1x pixel the layer pixel lies in */
+                        if (qx < clip[0] || qy < clip[1] || qx >= clip[2] || qy >= clip[3]) continue;
+                        vec_put_seg(seg[p], lx, ly, c);
+                    }
+            }
 }
 
 /* ---------------------------------------------------------------- page-to-page blits (S3.2 fix) */

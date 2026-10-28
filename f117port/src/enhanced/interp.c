@@ -168,6 +168,23 @@ void enh_interp_frame(void)
 }
 
 bool enh_interp_lerp(void) { return lerp_ok; }
+/* S4.6: a unit's / projectile's map cells (+0 / +2 of its record) at t, unrounded (the map MFD moves its blip by sub-pixels); false = not interpolated
+ * (then *x / *y = F_k's). kx / ky: F_k's cells (the step plotted the blip there) */
+bool enh_interp_cells(int cls, int slot, double t, double *x, double *y, u16 *kx, u16 *ky)
+{
+    const u8 *a, *b;
+    bool m;
+    if (cls == ENH_OBJ_UNIT && slot >= 0 && slot < OBJ_UNITS && slot < fc.n_units) { a = fp.unit[slot]; b = fc.unit[slot]; m = m_unit[slot]; }
+    else if (cls == ENH_OBJ_PROJ && slot >= 0 && slot < OBJ_PROJ) { a = fp.proj[slot]; b = fc.proj[slot]; m = m_proj[slot]; }
+    else return false;
+    *kx = rw(b, 0); *ky = rw(b, 2);
+    if (!m || t >= 1.0) { *x = *kx; *y = *ky; return m; }
+    if (t < 0) t = 0;
+    *x = rw(a, 0) + d16(rw(a, 0), rw(b, 0)) * t;
+    *y = rw(a, 2) + d16(rw(a, 2), rw(b, 2)) * t;
+    return true;
+}
+
 const char *enh_interp_hold_reason(void) { return hold_why; }
 
 static s32 lerp_l(s32 a, s32 b, double t) { return a + (s32)lround((double)((long long)b - a) * t); }
