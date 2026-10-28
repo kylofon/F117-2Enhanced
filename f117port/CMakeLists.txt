@@ -181,6 +181,9 @@ endif()
 # ENH: S2.1, the canvas geometry and the compositor (no game files needed): with empty layers the canvas equals the classic frame scaled N x N.
 add_test(NAME compose COMMAND f117 --compose-test)
 set_tests_properties(compose PROPERTIES PASS_REGULAR_EXPRESSION "compose-test OK")
+# ENH: S4.2, the object interpolation rules on synthetic records (no game files): slot + type matching, jumps, new tracer rounds, even forward steps per class
+add_test(NAME enh_interp_rules COMMAND f117 --interp-test)
+set_tests_properties(enh_interp_rules PROPERTIES PASS_REGULAR_EXPRESSION "interp-test OK")
 
 # ENH: S2.2, the hr 3D back end on the render3d golden scenes, enhancements ON (port/notes/e22/r3d_hr.py): the golden frames stay byte for byte, the hr
 # 3D layer equals the 1x page at --render-scale 1 and agrees with it away from edges at 2, 3, 4. Uses the golden test's cached references.

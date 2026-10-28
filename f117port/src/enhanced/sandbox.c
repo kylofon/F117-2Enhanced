@@ -148,6 +148,7 @@ static void report_display(FILE *f)
     fprintf(f, "display-rate: refreshes at every display period %llu, every 2nd %llu, every 3rd or later %llu; rate switches %llu; pass cost EMA %.2f ms; display period %.2f ms\n",
             n_refresh_div[1], n_refresh_div[2], n_refresh_div[3], n_rate_switch, est_cost / 1e6, (double)base_period() / 1e6);
     fprintf(f, "display-begin: %llu refreshes at a frame start\n", n_begin_refresh);
+    enh_interp_stats(f);   /* S4.2 */
     fprintf(f, "display-reuse: %llu refreshes showed the canonical render (alpha 1, not extended)\n", n_reused);
     if (enh.fps_check) fprintf(f, "fps-check: %llu refreshes compared, %llu differ, %llu pixels differ\n", chk_refresh, chk_diff_refresh, chk_diff_px);
     const double r = (double)n_refresh, secs = stream_t1 > stream_t0 ? (double)(stream_t1 - stream_t0) / 1e9 : 0;

@@ -54,6 +54,7 @@ int r3d_leaf_selftest(const char *file);                          /* render3d/r3
 #include "video/video.h"
 #include "enhanced/enh_canvas.h"   /* ENH */
 #include "enhanced/enhanced.h"   /* ENH */
+#include "enhanced/interp.h"   /* ENH: S4.2, --interp-test */
 
 static int usage(const char *prog)
 {
@@ -62,7 +63,7 @@ static int usage(const char *prog)
             "          [--trace] [--check] [--chain-test] [--tick-test [MS]]\n"
             "          [--keys NAME=CODE,...] [--keymap-test] [--frame-ticks N] [--version] [--classic]\n"
             "          [--render-scale N] [--wide] [--no-wide] [--smooth-shading] [--true-night] [--fps vsync|60|30|off]\n"
-            "          [--compose-test]   (Enhanced)\n", prog);
+            "          [--compose-test] [--interp-test]   (Enhanced)\n", prog);
     return 2;
 }
 
@@ -168,7 +169,7 @@ int main(int argc, char **argv)
     video_init();             /* the driver's state, the fonts of MGRAPHIC.EXE (silently none without the game files) */
 
     if (enh.compose_test) {                                    /* ENH: canvas geometry and compositor check */
-        int rc = enh.compose_test == 2 ? enh_wide_geometry_test() : enh_compose_selftest();   /* ENH: S3.4 */
+        int rc = enh.compose_test == 3 ? enh_interp_selftest() : enh.compose_test == 2 ? enh_wide_geometry_test() : enh_compose_selftest();   /* ENH: S3.4, S4.2 */
         host_shutdown();
         return rc;
     }

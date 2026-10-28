@@ -63,6 +63,7 @@ int enh_parse_arg(int argc, char **argv, int i)
     if (!strcmp(argv[i], "--fps-trace") && i + 1 < argc) { if (!enh.classic) snprintf(enh.fps_trace, sizeof enh.fps_trace, "%s", argv[i + 1]); return 2; }
     if (!strcmp(argv[i], "--compose-test")) { enh.compose_test = 1; return 1; }
     if (!strcmp(argv[i], "--wide-geometry-test")) { enh.compose_test = 2; return 1; }
+    if (!strcmp(argv[i], "--interp-test")) { enh.compose_test = 3; return 1; }   /* S4.2 */
     if (!strcmp(argv[i], "--dither") && i + 1 < argc) {
         if (!strcmp(argv[i + 1], "fine")) enh.dither_fine = !enh.classic;
         else if (!strcmp(argv[i + 1], "grid")) enh.dither_fine = false;

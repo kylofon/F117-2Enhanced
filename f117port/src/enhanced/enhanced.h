@@ -10,7 +10,7 @@ typedef struct {
     int  render_scale;   /* --render-scale N: the frame is shown N x N (0 = the largest whole multiple that fits the window) */
     bool wide;           /* --wide (default on since S3.4) / --no-wide: the canvas follows the window's aspect; the front cockpit and the outside views show the world
                           * beyond the 320x200 frame (DESIGN 3), every other view is the whole picture fitted and centred */
-    int  compose_test;   /* --compose-test (1): headless check of the canvas geometry and the compositor; --wide-geometry-test (2, S3.4): the placement per view and window */
+    int  compose_test;   /* --compose-test (1): headless check of the canvas geometry and the compositor; --wide-geometry-test (2, S3.4): the placement per view and window; --interp-test (3, S4.2) */
     bool dither_fine;    /* --dither fine: the 3D checkerboard per layer pixel; --dither grid (default): per original pixel (DESIGN 2.4, Q2) */
     bool hr_check;       /* --hr-check: the render test (--render-test) also checks the hr 3D layer against the 1x page (DIR/hr_check.txt) */
     char hr_dump[1024];  /* --hr-dump DIR (implies --hr-check): per render-test scenario DIR/<id>.hrd: the hr trace, the layer, the page (S2.3) */

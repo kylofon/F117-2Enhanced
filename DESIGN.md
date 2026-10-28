@@ -638,6 +638,44 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
   1077); smooth + night falls back to 30 Hz at both sizes (pass EMA 12.0 and 20.2 ms against the 12.5 ms limit). With the window at 164 Hz the divisor is 3
   (54.7 Hz) day and night.
 
+### 4.10 As built (S4.2): the objects and the HUD between steps
+* **Where.** `enhanced/interp.c` only; no engine hook (the HUD and every object are drawn by the pass from its copy of A_k, so writing the lerped fields
+  into that copy before `view_frame` is enough). At every frame start (`enh_interp_frame`, live A_k) the object state is read with the own aircraft's F_k
+  (F_{k-1} kept): the unit table (`[DED0]` x 36 B at C140, clamped to 48), the 12 projectile slots (3C0C), the `[B16C] + 4` tracer rounds (E44E), the 16
+  smoke puffs (39DA), the wreck (C0A6 / C0B8 / C602), the spinners (C04C / C04E), the pose-ring slot the delayed view reads (`(3D60 - 3660) & 15`, 16 B at
+  B056 + 16 i, with 3D60 / 3660) and the flight-path marker offset 98C6. The match is decided once per frame (`objects_match`), the values written per pass
+  (`objects_apply`, after the own aircraft in `enh_interp_apply`). Nothing interpolates while the frame holds (4.8: start, view, eject / crash, end, jump).
+* **Matching (slot + type) and jumps**; a slot that fails shows F_k (A_k's own value), the others still interpolate:
+  | Class | Same object when | Jump (no lerp) | Fields lerped |
+  |---|---|---|---|
+  | units | +16 bit 1 in both, +14 type equal | x32 / y32 > 2048 world units, +4 > 0x800, an angle > 0x4000 | +0 / +2 cells, +4 height (16-bit signed move), +6 / +A x32 / y32 (linear), +E / +10 / +12 (shortest arc) |
+  | projectiles | +E != 0 in both, +10 type equal | +0 / +2 > 512 cells, +4 > 0x2000, an angle > 0x4000 | +0 / +2 / +4, +8 / +A / +C |
+  | tracers | x != 0 in both, `[B16C]` equal | not exactly moved by its own velocity (465B: x_k = x_{k-1} + d, d kept), i.e. a new round in the slot | x / y / z = x_{k-1} + d alpha |
+  | smoke puffs | x / y equal, != 0 | height (+4) > 0x400 | +4 only (the size / art stays A_k's) |
+  | wreck | C602 > 0 in both | > 512 cells, height > 0x2000 | C0A6, C0B8, C602 |
+  | spinners | always | none: forward modular (they only go up, by up to 0x5100 a step) | C04C, C04E |
+  | pose ring (view 0x84) | the view 0x84, 3660 equal, 3D60 + 1 | as the own aircraft (1024, 0x800, 0x4000) | the slot read in frame k gets the pose between the slot read in k-1 and it |
+  | flight-path marker | always | > 0x1000 | 98C6 (the HUD velocity vector's offset; a sim value read only by the HUD and the step) |
+  The pose ring is changed in the pass's copy, so `sim_view.c` needs no hook: view_frame's case 0x84 reads the lerped slot; the fly-by sway that also
+  reads the ring runs in the step, never in a pass. The camera of the target views (units / projectiles) follows the lerped records the same way.
+* **HUD.** Ladder, horizon, heading tape and ADI already used the lerped 2DEE / 2DF0 / 2DF2 and the matrix (4.8; the ADI's 98C8 / 98E4 / 98F8 / 9F12
+  are rebuilt from the camera by the sky pass in every pass); the target boxes and dots are projected by B85D from the lerped objects and camera, the
+  flight-path marker uses the lerped 98C6. The digits (speed, altitude 2DF6, heading number) show the lerped heading or A_k's values. The designator logic in
+  9ACA runs in the pass on the lerped positions; what it selects is thrown away with the pass (the sim's selection is the canonical frame's).
+* **Not interpolated (discrete, per step):** explosions and puff animation frames, the TV fire puffs (C73C consumes the RNG; in a pass it is the pass's copy),
+  smoke size, MFD pages, messages, the HUD digits that are not computed from lerped fields.
+* **Tests.** ctest `enh_interp_rules` (`--interp-test`, no game files): synthetic records for every class in a scratch DGROUP: matched slots step evenly
+  over 4 refreshes and end on F_k, a type change / a freed unit / a unit jump / a new tracer round are held, the spinner goes forward over the wrap, the delayed
+  view's slot moves, a view change holds everything. `enh_fps_jerk` now checks the camera of **every** view (S4.1: own-aircraft views only; 433 frames, 0
+  uneven, 0 backward, worst 5.7 %) and the per-object-class trace (`--fps-trace` lines `o <frame> <refresh> <class> <slot> v= a= b=`): units 2608
+  object-frames, projectiles 89, spinners 444, pose ring 29, fpm 444, all 0 uneven / 0 backward / 0 not ending on F_k (worst 7.3 % of the mean step);
+  tracers, smoke and the wreck do not occur in the scripted chains (no gun, no hit) and are covered by `enh_interp_rules`. `sim_interp_equal` adds the
+  airbase chain (461 frames, units / projectiles / the pose ring / target views interpolated) with `--fps-test 4` against `--fps off`: every frame hash
+  identical. Exit line `display-objects:` (per class frames interpolated / held, the largest move a step: units 173 world units, projectiles 15 cells, the
+  pose ring 54, fpm 19, spinners 0x5100).
+* **Cost.** Reading the objects once per frame (about 3 KB) and writing them per pass is lost in the noise: `port/notes/e43/profile.py` at 1920 x 1080,
+  N = 4, wide, 804 refreshes, ms per refresh avg / p95: day 5.51 / 6.95 (before S4.2: 5.58 / 6.96), smooth + true night 13.23 / 16.67 (13.06 / 16.28).
+
 ## 5 (d) Hooks, `--classic`, tests
 
 ### 5.1 `ENH:` hooks (each a guarded call of 1–3 lines; bodies live in `src/enhanced/`)
@@ -679,7 +717,8 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 | `host_opl_write` | `host.c` | `enh_opl_trace` (the OPL stream for `--sandbox-hash`) | S2.4 |
 | statics | `vga.c`, `mgraphic.c`, `pic.c`, `r3d_object.c` | `*_sandbox_regions(add)`: the module's statics for the snapshot | S2.4 |
 | `main` | `main.c` | `enh_env_args()` before anything runs | S2.4 |
-| `view_frame` case 0x84 | `sim/sim_view.c` | lerp the ring pose in sandbox | S4.2 |
+| `main` test dispatch | `main.c` | `--interp-test` -> `enh_interp_selftest()` | S4.2 |
+| `view_frame` case 0x84 | `sim/sim_view.c` | lerp the ring pose in sandbox (as built: no hook, the pass's copy of the slot is lerped, 4.10) | S4.2 |
 
 ### 5.2 `--classic`
 `enh_parse_arg("--classic")` clears every option; each hook is `if (enh.<option>) …` (or `enh_active()`), so with classic

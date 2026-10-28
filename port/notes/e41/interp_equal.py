@@ -14,10 +14,12 @@ refreshes really run.
 
 enh_fps_jerk: the real-path chain (the airbase, a site selected) with the test pose (F117_TEST_POSE: level banked flight at 3000 ft, 380 kt from frame 60) and the
 view sweep of r3d_hr_wide_realpath (cockpit, second cockpit, left, right, rear, front, chase, delayed, side, target views, cockpit), window 1280 x 720, N = 2,
---fps-test 4 --fps-trace: per refresh the camera view_frame built (B288 / B752 / B75C, E44C / C07C / B770). Per frame that interpolates, in the views whose camera
-follows the own aircraft only (0, 0x41..0x44, 0x85..0x87): the 4 steps of each camera component from the previous frame's last refresh (the canonical frame
+--fps-test 4 --fps-trace: per refresh the camera view_frame built (B288 / B752 / B75C, E44C / C07C / B770). Per frame that interpolates, in every view (S4.1: the
+own-aircraft views only; S4.2 adds the delayed view's pose ring and the target views' objects): the 4 steps of each camera component from the previous frame's last refresh (the canonical frame
 k-1) are even (each within 2 + 3 % of the frame's whole move of the mean) and none goes backward; the frames that hold (start, view change, jump) show one
-picture (all their refreshes equal). Then a real-time run (no virtual clock) of the same with --fps 60: alpha never decreases inside a frame and stays in 0..1, and
+picture (all their refreshes equal). S4.2, the per-object-class jerk trace: per interpolating object (units, projectiles, tracers, smoke, wreck, spinners, the
+pose ring, the flight-path marker offset) and frame the 4 values its refreshes showed step evenly from its F_{k-1} value, never backward, and end on F_k
+(the classes this chain has must appear; tracers / smoke / the wreck are covered by ctest enh_interp_rules). Then a real-time run (no virtual clock) of the same with --fps 60: alpha never decreases inside a frame and stays in 0..1, and
 the cockpit camera never steps backward, also across a sim step.
 
 usage: python interp_equal.py <f117 executable> <game dir> <work dir> [equal|jerk]          exit 77 without the game files
@@ -52,6 +54,44 @@ def display_line(d):
         if l.startswith('display: '):
             return l.strip()
     return ''
+
+
+def objects_line(d):
+    for l in open(os.path.join(d, 'hash.txt')):
+        if l.startswith('display-objects: '):
+            return l.strip()
+    return ''
+
+
+def objects_lerped(line, cls):
+    m = re.search(r' %s (\d+)/(\d+)' % cls, line)
+    return int(m.group(1)) if m else 0
+
+
+def airbase_chain(exe, game, work, name, extra):
+    """S4.2: the real-path chain of enh_fps_jerk (the airbase: taxiing traffic, the delayed and target views, projectiles) with --sandbox-hash"""
+    import real_path as RP
+    import wide_realpath as WR
+    os.environ['F117_WINDOW'] = WINDOW
+    os.environ['SEL'] = str(WR.SELECT)
+    os.environ['F117_TEST_POSE'] = '60'
+    d = os.path.join(work, name)
+    os.makedirs(d, exist_ok=True)
+    hf = os.path.join(d, 'hash.txt')
+    if os.path.exists(hf):
+        os.remove(hf)
+    t = time.time()
+    try:
+        p, _ = RP.run(exe, game, work, name, 2, WR.KEYS, '', frames=WR.FRAMES, extra='--wide --sandbox-hash %s %s' % (hf.replace(os.sep, '/'), extra))
+    finally:
+        for k in ('F117_WINDOW', 'SEL', 'F117_TEST_POSE'):
+            os.environ.pop(k, None)
+    if p.returncode != 0 or not os.path.isfile(hf):
+        print('sim_interp_equal FAILED: the airbase run %s ended with %d' % (name, p.returncode))
+        return None
+    lines = open(hf).read().splitlines()
+    fin = [l for l in lines if l.startswith('final ')]
+    return dict(frames=[l for l in lines if l[:1].isdigit()], final=fin[0] if fin else '', roster=b'', secs=time.time() - t)
 
 
 def compare(a, b, what):
@@ -92,6 +132,8 @@ def equal(exe, game, work):
             e = 'test: %s refreshes in %s stream frames, want 4 each' % (m.group(1), m.group(2))
         if not e and int(m.group(3)) < 10:
             e = '%s: only %s interpolated refreshes' % (name, m.group(3))
+        if not e and name == 'test' and objects_lerped(objects_line(os.path.join(work, name)), 'units') < 10:
+            e = 'test: the object pass did not run (%s)' % objects_line(os.path.join(work, name))
         if e:
             print('sim_interp_equal FAILED: ' + e)
             return 1
@@ -105,15 +147,28 @@ def equal(exe, game, work):
     if e:
         print('sim_interp_equal FAILED: ' + e)
         return 1
+    # S4.2: the object pass, where there are objects to interpolate (units, projectiles, the pose ring, the target views)
+    aoff = airbase_chain(exe, game, work, 'airbase_off', '--fps off')
+    aon = airbase_chain(exe, game, work, 'airbase_on', '--fps-test 4')
+    if aoff is None or aon is None:
+        return 1
+    e = compare(aoff, aon, 'airbase') if len(aoff['frames']) >= 400 else 'airbase: only %d frames' % len(aoff['frames'])
+    aobj = objects_line(os.path.join(work, 'airbase_on'))
+    if not e and not all(objects_lerped(aobj, c) > 0 for c in ('units', 'projectiles', 'pose-ring')):
+        e = 'airbase: the object pass did not interpolate units, projectiles and the pose ring (%s)' % aobj
+    if e:
+        print('sim_interp_equal FAILED: ' + e)
+        return 1
     print('sim_interp_equal OK: %d VGAME frames, every frame hash (DGROUP, comm, LCG, sound, OPL, mem, VGA, canvas), the final comm block, OPL stream and roster '
           'identical to --fps off, 0 forbidden calls; refreshes / stream frames / interpolated: %s; night + smooth shading --fps-test 3 identical to its --fps off run '
-          '(%d frames); %s' % (len(off['frames']), ', '.join(out), len(noff['frames']), display_line(os.path.join(work, 'test'))))
+          '(%d frames); %s; S4.2 object pass: airbase chain --fps-test 4 identical to --fps off (%d frames), %s' % (len(off['frames']), ', '.join(out), len(noff['frames']),
+                                                                                   display_line(os.path.join(work, 'test')), len(aoff['frames']), aobj))
     return 0
 
 
 # ---------------------------------------------------------------- the jerk trace
 
-OWN_VIEWS = {0x00, 0x41, 0x42, 0x43, 0x44, 0x85, 0x86, 0x87}   # the camera follows the own aircraft only (the others also follow objects / the pose ring: S4.2)
+OWN_VIEWS = set(range(0x100))   # S4.2: every view (S4.1 checked only the own-aircraft cameras; the delayed and target views follow the pose ring / objects)
 TRACE_RE = re.compile(r'^(\d+) (\d+) ([\d.]+) ([\d.]+) (\d) (\S+) view=(\w+) cam=(-?\d+),(-?\d+),(\d+) ang=(\d+),(\d+),(\d+)')
 
 
@@ -183,6 +238,57 @@ def jerk_check(frames, k):
     return stats, bad
 
 
+OBJ_RE = re.compile(r'^o (\d+) (\d+) (\w+) (\d+) v=(\S+) a=(\S+) b=(\S+)')
+OBJ_CLASSES = ('unit', 'proj', 'tracer', 'smoke', 'wreck', 'spin', 'ring', 'fpm')
+
+
+def obj_delta(cls, i, a, b):
+    d = b - a
+    if cls == 'spin' or (cls in ('unit', 'ring') and i < 2):   # 32-bit world positions; the spinners are unwrapped in the trace
+        return d
+    return (d + 0x8000) % 0x10000 - 0x8000                      # 16-bit cells, heights, angles: the shortest arc
+
+
+def obj_jerk(path, k):
+    """S4.2: the per-object-class jerk trace. Per interpolating object and frame: the k values its refreshes showed, from its F_{k-1} value (a), must step
+    evenly (each within 2 + 3 % of the frame's move of the mean), never backward, and end on F_k (b)"""
+    objs = {}
+    for l in open(path):
+        m = OBJ_RE.match(l)
+        if m:
+            g = m.groups()
+            objs.setdefault((int(g[0]), g[2], int(g[3])), []).append((int(g[1]), [int(x) for x in g[4].split(',')], [int(x) for x in g[5].split(',')],
+                                                                      [int(x) for x in g[6].split(',')]))
+    st = {c: dict(frames=0, uneven=0, back=0, off=0, worst=0.0, partial=0) for c in OBJ_CLASSES}
+    bad = []
+    for (f, cls, slot), rows in sorted(objs.items()):
+        rows.sort()
+        s = st[cls]
+        if len(rows) != k:
+            s['partial'] += 1
+            continue
+        s['frames'] += 1
+        a, b = rows[0][2], rows[0][3]
+        if rows[-1][1] != b:
+            s['off'] += 1
+            bad.append('frame %d %s %d: the last refresh %s is not F_k %s' % (f, cls, slot, rows[-1][1], b))
+        for i in range(4):
+            seq = [a[i]] + [r[1][i] for r in rows]
+            steps = [obj_delta(cls, i, seq[j], seq[j + 1]) for j in range(k)]
+            total = sum(steps)
+            mean = total / k
+            dev = max(abs(x - mean) for x in steps)
+            if abs(total) >= 40 and mean:
+                s['worst'] = max(s['worst'], dev / abs(mean))
+            if dev > 2 + 0.03 * abs(total):
+                s['uneven'] += 1
+                bad.append('frame %d %s %d component %d: steps %s uneven' % (f, cls, slot, i, steps))
+            if total and any(x * total < 0 and abs(x) > 2 for x in steps):
+                s['back'] += 1
+                bad.append('frame %d %s %d component %d: a backward step %s' % (f, cls, slot, i, steps))
+    return st, bad
+
+
 def jerk_run(exe, game, work, name, extra, vclock=True):
     import real_path as RP
     import wide_realpath as WR
@@ -222,13 +328,23 @@ def jerk(exe, game, work):
     frames = read_trace(tr)
     st, bad = jerk_check(frames, k)
     views = sorted({r['view'] for rs in frames.values() for r in rs})
-    ok = not bad and st['checked'] >= 150 and all(w in st['holds'] for w in ('start', 'view', 'jump')) and len(views) >= 10
-    print('enh_fps_jerk (virtual clock, %d refreshes a frame at alpha 1/%d..1): %d frames traced (%d interpolated, %d holding: %s), views %s; %d own-camera frames checked '
+    ok = not bad and st['checked'] >= 400 and all(w in st['holds'] for w in ('start', 'view', 'jump')) and len(views) >= 10
+    print('enh_fps_jerk (virtual clock, %d refreshes a frame at alpha 1/%d..1): %d frames traced (%d interpolated, %d holding: %s), views %s; %d camera frames checked (every view) '
           '(%d steps of 6 components from the canonical frame k-1): uneven %d, backward %d, worst deviation %.1f %% of the mean step (moves >= 40); holding frames with differing '
           'refreshes %d; %.0f s%s' % (k, k, len(frames), st['lerp'], st['hold'], ', '.join('%s %d' % kv for kv in sorted(st['holds'].items())),
                                      ' '.join('%x' % v for v in views), st['checked'], st['steps'], st['uneven'], st['back'], 100 * st['worst'], st['hold_bad'], secs,
                                      '' if ok else '  BAD'))
     for b in bad[:10]:
+        print('  ' + b)
+    if not ok:
+        print('enh_fps_jerk FAILED')
+        return 1
+    ost, obad = obj_jerk(tr, k)
+    need = ('unit', 'proj', 'spin', 'ring', 'fpm')                 # in this chain (tracers, smoke and the wreck: ctest enh_interp_rules)
+    ok = not obad and all(ost[c]['frames'] > 0 for c in need) and ost['unit']['frames'] >= 500
+    print('enh_fps_jerk objects (S4.2, per class: object-frames checked / uneven / backward / not ending on F_k, worst deviation of the mean step): %s%s'
+          % ('; '.join('%s %d/%d/%d/%d %.1f %%' % (c, v['frames'], v['uneven'], v['back'], v['off'], 100 * v['worst']) for c, v in ost.items()), '' if ok else '  BAD'))
+    for b in obad[:10]:
         print('  ' + b)
     if not ok:
         print('enh_fps_jerk FAILED')
