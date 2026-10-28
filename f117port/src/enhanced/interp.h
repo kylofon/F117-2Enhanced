@@ -27,5 +27,6 @@ void enh_interp_apply(double alpha);    /* in a display pass, on A_k: the fields
 enum { ENH_OBJ_UNIT, ENH_OBJ_PROJ, ENH_OBJ_TRACER, ENH_OBJ_SMOKE, ENH_OBJ_WRECK, ENH_OBJ_SPIN, ENH_OBJ_RING, ENH_OBJ_FPM, ENH_OBJ_CLASSES };   /* S4.2 */
 void enh_interp_stats(FILE *f);       /* S4.2: the display-objects exit line (per class: frames interpolated / held, the largest move a step) */
 int enh_interp_selftest(void);        /* S4.2: --interp-test */
+void enh_interp_own(double t, double *x, double *y, u16 *hdg);   /* S4.6 fix 1: the own aircraft at t, unrounded (world x / y, heading) */
 bool enh_interp_cells(int cls, int slot, double t, double *x, double *y, u16 *kx, u16 *ky);   /* S4.6: a unit / projectile's map cells at t (unrounded); false = shows F_k */
 void enh_interp_trace(FILE *f, unsigned long long frame, int pass, double alpha, double ms);   /* ms: display clock */   /* --fps-trace: the camera view_frame built in this pass */

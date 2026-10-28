@@ -432,6 +432,29 @@ static void disp_hash(void)
     fprintf(f, "%llu %d %dx%d %016llx\n", vg_frame, frame_refreshes + 1, disp_cv.lw, disp_cv.lh, (unsigned long long)fnv(0xCBF29CE484222325ull, disp, px * sizeof(u32)));
 }
 
+/* S4.6 test aid (F117_DISP_DUMP=PREFIX, F117_DISP_DUMP_FRAMES=a,b,...): those frames' refresh pictures as PREFIX_<frame>_<refresh>.raw (u32 w, h, n, fx, fy, then
+ * w x h XRGB pixels) */
+static void disp_dump(void)
+{
+    static const char *pre, *frames;
+    static int state;
+    if (!state) { pre = getenv("F117_DISP_DUMP"); frames = getenv("F117_DISP_DUMP_FRAMES"); state = 1; }
+    if (!pre || !*pre || !frames || in_check || !disp) return;
+    char key[32];
+    snprintf(key, sizeof key, ",%llu,", vg_frame);
+    char list[512];
+    snprintf(list, sizeof list, ",%s,", frames);
+    if (!strstr(list, key)) return;
+    char path[1200];
+    snprintf(path, sizeof path, "%s_%llu_%d.raw", pre, vg_frame, frame_refreshes + 1);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    const u32 hd[5] = { (u32)disp_cv.lw, (u32)disp_cv.lh, (u32)disp_cv.n, (u32)disp_cv.fx, (u32)disp_cv.fy };
+    fwrite(hd, sizeof hd, 1, f);
+    fwrite(disp, sizeof(u32), (size_t)disp_cv.lw * (size_t)disp_cv.lh, f);
+    fclose(f);
+}
+
 static void check_compare(void)
 {
     const size_t px = (size_t)disp_cv.lw * (size_t)disp_cv.lh;
@@ -473,6 +496,7 @@ static void refresh(double alpha, bool before_flip)
     if (!reused && test_cost_ns()) { const Uint64 e = SDL_GetTicksNS() + test_cost_ns(); while (SDL_GetTicksNS() < e) {} }   /* test aid: a slower machine */
     const Uint64 d = SDL_GetTicksNS() - t0;
     disp_hash();                                              /* test aid, outside the timed stages */
+    disp_dump();                                              /* S4.6 test aid */
     if (enh.fps_check) check_compare();
     frame_refreshes++;
     n_refresh++;
@@ -592,7 +616,7 @@ static void display_pass(int v, double alpha, PassKind kind)
     Uint64 t1 = SDL_GetTicksNS();
 
     enh_sbx = true;
-    if (kind >= PASS_WIDE_DISP) enh_map_prepare(alpha);      /* S4.6: the map cache rendered when due (then A_k is loaded again) */
+    enh_map_prepare(kind >= PASS_WIDE_DISP ? alpha : -1.0);   /* S4.6: the map cache rendered when due (then A_k is loaded again); -1: not a display pass */
     enh_wide_drawn = false;
     enh_wide_pass = kind == PASS_WIDE_FRAME || kind == PASS_WIDE_DISP || (kind == PASS_DISP && stream_wide);
     if (enh_wide_pass) DSW(0x2E48) = DSW(0xC07A);             /* S3.4 fix 4: the cockpit picture counts as loaded (no file read in a pass); only the pass's 3D layer is used */
@@ -601,7 +625,6 @@ static void display_pass(int v, double alpha, PassKind kind)
     if (kind >= PASS_WIDE_DISP) enh_map_apply(alpha);      /* S4.6: the map MFD's symbols at alpha (DESIGN 4.11) */
     view_frame();                                             /* the faithful frame's render, as frame_loop_body runs it */
     if (disp_pass && trace_f) enh_interp_trace(trace_f, vg_frame, frame_refreshes + 1, alpha, (double)(t_last_refresh - stream_t0) / 1e6);   /* S4.1 test aid: the camera of this refresh */
-    if (disp_pass && trace_f) enh_map_trace(trace_f, vg_frame, frame_refreshes + 1);   /* S4.6 */
     hud_overlay_frame();
     if (DSW(0xC07A) == 0) {
         hud_draw_far();
@@ -609,6 +632,7 @@ static void display_pass(int v, double alpha, PassKind kind)
         cockpit_draw_adi();
     }
     flip(DSW(0x2E34) * 160);
+    if (disp_pass && trace_f) enh_map_trace(trace_f, vg_frame, frame_refreshes + 1);   /* S4.6: after the HUD (the scope is drawn there) */
     if (kind == PASS_WIDE_FRAME) enh_wide_capture_to(0);      /* S3.4: the pass's layers (after its flip) are the pending wide picture */
     else if (kind == PASS_WIDE_DISP) enh_wide_capture_to(2);  /* S4.1: ... the wide picture of this refresh */
     Uint64 tc = SDL_GetTicksNS();

@@ -53,7 +53,10 @@ static u16 prev_a, prev_b;
 
 static unsigned long long st_ns, st_passes, st_build_ns, st_builds;   /* the per-pass cost, the cache renders */
 static unsigned long long st_frames, st_active, st_own, st_own_held, st_blips, st_blips_lerp, st_tag_bad, st_over, st_chk, st_chk_bad;
-static unsigned long long st_recentre;   /* the original map moved (39C4 / 8387 recentred it) while the scrolled map was shown */
+static unsigned long long st_recentre;
+static unsigned long long st_cov, st_uncov, st_outside, st_scope;   /* fix 2: passes checked, window pixels beyond the world, pixels changed outside the window */
+static bool pass_disp, scope_on;   /* fix 1 */
+static double pass_alpha = 1.0;   /* the original map moved (39C4 / 8387 recentred it) while the scrolled map was shown */
 static unsigned long long st_tchk, st_tchk_px, st_tchk_edge, st_tchk_max, st_ovl, st_ovl_px, st_ovl_max;
 
 /* ---------------------------------------------------------------- the log (live, in the step) */
@@ -148,8 +151,15 @@ static bool inside_plot(int x, int y)     /* mfd_map_plot (8548) */
 static double own_x(double t) { return own_prev.tx + wrap16(own_cur.tx - own_prev.tx) * t; }
 static double own_y(double t) { return own_prev.ty + wrap16(own_cur.ty - own_prev.ty) * t; }
 static u16 own_hdg(double t) { return (u16)(own_prev.hdg + (int)lround((s16)(u16)(own_cur.hdg - own_prev.hdg) * t)); }
-static double org_x(double t) { return own_ok ? own_x(t) : own_cur.tx; }   /* the map's centre: the aircraft marker's position (the map scrolls under it) */
-static double org_y(double t) { return own_ok ? own_y(t) : own_cur.ty; }
+static double pos_x(double t) { return own_ok ? own_x(t) : own_cur.tx; }   /* the aircraft marker's position at t */
+static double pos_y(double t) { return own_ok ? own_y(t) : own_cur.ty; }
+static double clampd(double v, double lo, double hi) { return v < lo ? lo : v > hi ? hi : v; }
+/* the map's centre: the marker's position, kept as far from the world's edge as 8387 keeps its centre (the window never shows beyond the world:
+ * x within 4Dh << (9 - z) cells of the edge, y within ((3Ch << (9 - z)) / 3) << 2); away from the edges the marker is at the centre, near them it moves off it */
+static double lim_x(void) { return (double)(0x4D << ((9 - (s8)DSB(0x4080)) & 31)); }
+static double lim_y(void) { return (double)((((s16)(0x3C << ((9 - (s8)DSB(0x4080)) & 31))) / 3) << 2); }
+static double org_x(double t) { return clampd(pos_x(t), lim_x(), 0x7FFF - lim_x()); }
+static double org_y(double t) { return clampd(pos_y(t), lim_y(), 0x7FFF - lim_y()); }
 static u16 org_hdg(double t) { return own_ok ? own_hdg(t) : own_cur.hdg; }
 
 static u16 draw_seg(void) { return video_page_seg(*(s16 *)DSP(DSW(DSB(0x4088) ? CTX_P1_PTR : CTX_P0_PTR))); }   /* the draw page (mfd_map_save_bg) */
@@ -172,10 +182,15 @@ void enh_map_frame(void)
     memcpy(fl, bl, (size_t)fn * sizeof(Op));
     bn = 0; bstarted = bover = false; bown.valid = false; arc_depth = 0; tag_cls = -1;
     const bool shown = DSW(0x365E) != 0 && DSW(0xDEDA) == 0;
-    active = own_ok = false;
+    active = own_ok = scope_on = false;
     if (!enh_map_log_on) return;
+    { static int off = -1; if (off < 0) { const char *e = getenv("F117_TEST_MAP_OFF"); off = e && *e == '1'; }
+      scope_on = !off && DSW(0x365E) != 0 && DSW(0xDEDA) == 1; }   /* fix 1: the scope is redrawn unrounded by every pass */
     if (shown) st_frames++;
     if (!fvalid || !shown || !own_cur.valid) return;
+    static int off = -1;
+    if (off < 0) { const char *e = getenv("F117_TEST_MAP_OFF"); off = e && *e == '1'; }   /* test aid: the passes show the step's map as the original drew it */
+    if (off) return;
     active = true;
     st_active++;
     {
@@ -210,7 +225,7 @@ void enh_map_frame(void)
     want_check = chk == 1;
 }
 
-bool enh_map_active(void) { return active; }
+bool enh_map_active(void) { return active || scope_on; }
 
 /* ---------------------------------------------------------------- the terrain cache (in a display pass) */
 
@@ -258,8 +273,9 @@ static void scroll_of(double t, double *sx, double *sy)        /* the cache pixe
 
 void enh_map_prepare(double alpha)
 {
-    if (!active || !enh_sbx) return;
-    (void)alpha;
+    pass_disp = alpha >= 0 && enh_sbx;                        /* fix 1: the scope redraw needs this pass's alpha */
+    pass_alpha = alpha < 0 ? 1.0 : alpha > 1 ? 1.0 : alpha;
+    if (!active || !enh_sbx || alpha < 0) return;
     const int z = (s8)DSB(0x4080), n = enh_cv.n;
     bool due = !cache_ok || cache_z != z || cache_n != n || cache_hash != bg_hash;
     for (int e = 0; e < 2 && !due; e++) {                     /* both ends of this frame inside the cache's margin */
@@ -428,6 +444,16 @@ void enh_map_apply(double alpha)
     const Uint64 t0 = SDL_GetTicksNS();
     const int n = enh_cv.n;
     const double u = unit(), ox = org_x(t), oy = org_y(t);
+    EnhRectSnap *ring = want_check ? enh_rect_snap(WX0 - 8, WY0 - 8, WW + 16, WH + 16) : NULL;   /* fix 2 test aid: nothing drawn outside the window */
+    if (want_check) {                                         /* fix 2 test aid: every window pixel shows the world (no band beyond its edge) */
+        unsigned long long unc = 0;
+        for (int j = 0; j < WH; j++)
+            for (int i = 0; i < WW; i++) {
+                const double wx = ox + (WX0 + i + 0.5 - CX) * u, wy = oy + (WY0 + j + 0.5 - CY) / 0.75 * u;
+                unc += wx < 0 || wx >= 0x8000 || wy < 0 || wy >= 0x8000;
+            }
+        st_cov++; st_uncov += unc;
+    }
     /* the terrain: the cache moved by the scroll in whole layer pixels */
     double sx, sy;
     scroll_of(t, &sx, &sy);
@@ -436,7 +462,7 @@ void enh_map_apply(double alpha)
     /* the statics on the pixel grid of the cells sa / sb, moved by the rest of the scroll */
     const u16 sa = (u16)(u * floor(ox / u)), sb = (u16)(4 * u * floor(oy / (4 * u)));
     const double fx = wrap16(ox - sa) / u, fy = 0.75 * wrap16(oy - sb) / u;
-    const StatArg q = { sa, sb, (u16)floor(ox), (u16)floor(oy) };
+    const StatArg q = { sa, sb, (u16)floor(pos_x(t)), (u16)floor(pos_y(t)) };   /* the route starts at the aircraft */
     const u16 s94 = DSW(0xDE94), s302 = DSW(0xE302), s96 = DSW(0xDE96), s444 = DSW(0xE444), s84 = DSW(0x4084), s86 = DSW(0x4086), sca = DSW(0xC0A4), scb = DSW(0xC0B2);
     bool any_static = false;
     for (int i = 0; i < fn && !any_static; i++) any_static = fl[i].kind == OP_KEY || fl[i].kind == OP_ROUTE || fl[i].kind == OP_ARC || (fl[i].kind == OP_PLOT && fl[i].cls < 0);
@@ -449,13 +475,21 @@ void enh_map_apply(double alpha)
             st_blips++;
             if (draw_blip(t, o)) st_blips_lerp++;
         } else if (o->kind == OP_OWN) {
+            const double px = CX + wrap16(pos_x(t) - ox) / u, py = CY + 0.75 * wrap16(pos_y(t) - oy) / u;   /* the centre unless the map is held at an edge */
+            const int ix = (int)floor(px), iy = (int)floor(py);
+            if (!(ix > WX0 && ix < WX0 + WW - 2 && iy > WY0 && iy < WY0 + WH - 2)) continue;   /* mfd_map_to_screen */
             KeyArg k;
             memcpy(k.a, o->a, sizeof k.a);
-            k.a[0] = CX - 1; k.a[1] = CY - 1;
+            k.a[0] = ix - 1; k.a[1] = iy - 1;
             k.a[2] = (o->a[2] & ~0x1C) | (((s16)(u16)(org_hdg(t) + 0x1000) >> 11) & 0x1C);
-            op_key(&k);
+            if (n <= 1) op_key(&k);
+            else enh_cap_shift(ix - 1, iy - 1, o->a[4], o->a[5], sub(px, ix), sub(py, iy), clip_r, op_key, &k);
             TraceRow *r = own_ok ? trace_row(0, 0) : NULL;
-            if (r) { pos_row(CX, CY, r->v); pos_row(CX, CY, r->a); pos_row(CX, CY, r->b); }
+            if (r) {
+                pos_row(px, py, r->v);
+                pos_row(CX + wrap16(pos_x(0) - org_x(0)) / u, CY + 0.75 * wrap16(pos_y(0) - org_y(0)) / u, r->a);
+                pos_row(CX + wrap16(pos_x(1) - org_x(1)) / u, CY + 0.75 * wrap16(pos_y(1) - org_y(1)) / u, r->b);
+            }
         }
     }
     if (own_ok) {                                             /* the scroll: continuous (1/64 pixel) and drawn (the world's layer pixel under the window) */
@@ -473,13 +507,170 @@ void enh_map_apply(double alpha)
             }
         }
     }
+    if (ring) { const int in[4] = { WX0, WY0, WX0 + WW, WY0 + WH }; st_outside += enh_rect_changed_outside(ring, in); enh_rect_drop(ring); }
     st_ns += SDL_GetTicksNS() - t0;
     st_passes++;
 }
 
+/* ---------------------------------------------------------------- the scope between steps (fix 1, U1 feedback "grid radar view") */
+
+/* mfd_scope_draw (8C10) in a display pass, unrounded. The original computes every point with mfd_w2s (90B9): the integer cells' offset from C0A4 / C0B2 shifted
+ * right by 7 - [4082], rotated by the heading in Q15 and rounded to a whole pixel: drawn from the lerped pose that moves in whole pixels, and as the lerped
+ * heading turns, the rounding of each rotated grid point flips (the grid's shimmer). Here the same points come from the unrounded position (BA10 / C02A of
+ * the pass), the lerped heading and the objects' unrounded cells, and are drawn at their sub-pixel places: the grid, target boxes and projectile tracks as
+ * thin vector-layer lines, the icons as the original 7 x 7 icons moved by the fraction (enh_cap_shift). The fill, the order, the colours, what is shown
+ * and the visibility test (on the whole pixel) are the original's. */
+typedef struct { double x, y; bool vis; } ScP;
+static double sc_ox, sc_oy, sc_c, sc_s, sc_k;
+static int sc_clip[4], sc_iclip[4];
+
+static void sc_pose(double t)                                 /* the aircraft at t: the scope's origin and rotation */
+{
+    double x, y;
+    u16 h;
+    enh_interp_own(t, &x, &y, &h);
+    sc_ox = (x + 16) / 32.0;                                  /* the cells as 39C4 derives them, unrounded */
+    sc_oy = 0x8000 - (y + 16) / 32.0;
+    const double a = h * (6.283185307179586 / 65536.0);
+    sc_c = cos(a); sc_s = sin(a);
+}
+
+static ScP sc_w2s(double wx, double wy)
+{
+    const double a = wrap16(wx - sc_ox) * sc_k, b = wrap16(sc_oy - wy) * sc_k;
+    ScP p;
+    const double x = sc_c * a - sc_s * b, y = sc_s * a + sc_c * b;
+    p.x = 0x70 + x; p.y = 0x98 - y;
+    const int ix = (int)floor(p.x + 0.5), iy = (int)floor(p.y + 0.5);
+    p.vis = !(ix < 0x4E || ix > 0x93 || iy < 0x71 || iy > 0xA6);
+    return p;
+}
+
+typedef struct { int cx, cy, x, y; } IconArg;
+static void op_icon(void *p) { const IconArg *q = p; mfd_icon(q->cx, q->cy, q->x, q->y); }
+static void sc_icon(u16 seg, int cx, int cy, ScP p)
+{
+    (void)seg;
+    const int ix = (int)floor(p.x), iy = (int)floor(p.y);
+    IconArg q = { cx, cy, ix, iy };
+    if (enh_cv.n <= 1) { q.x = (int)floor(p.x + 0.5); q.y = (int)floor(p.y + 0.5); op_icon(&q); return; }
+    enh_cap_shift(ix - 3, iy - 3, 7, 7, sub(p.x, ix), sub(p.y, iy), sc_iclip, op_icon, &q);
+}
+static void sc_box(u16 seg, ScP p, int col)                   /* mfd_target_box (903F): a 9 x 7 frame */
+{
+    const u8 c = (u8)col;
+    enh_vec_line_f(seg, p.x - 4, p.y - 3, p.x + 4, p.y - 3, c, sc_clip);
+    enh_vec_line_f(seg, p.x + 4, p.y - 3, p.x + 4, p.y + 3, c, sc_clip);
+    enh_vec_line_f(seg, p.x + 4, p.y + 3, p.x - 4, p.y + 3, c, sc_clip);
+    enh_vec_line_f(seg, p.x - 4, p.y + 3, p.x - 4, p.y - 3, c, sc_clip);
+}
+
+static void obj_cells(int cls, int slot, u16 rec, double *x, double *y)
+{
+    u16 kx, ky;
+    if (!enh_interp_cells(cls, slot, pass_alpha, x, y, &kx, &ky)) { *x = DSW(rec); *y = DSW(rec + 2); }
+}
+
+bool enh_scope_pass(int flip)
+{
+    if (!enh_sbx || !pass_disp || !scope_on) return false;
+    st_scope++;
+    const u16 seg = draw_seg();
+    const int r = (s16)DSW(0x4082) + 1;
+    gfx_set_fg(0);
+    fill_rows_far(DSP(DSW((u8)flip ? CTX_P1_PTR : CTX_P0_PTR)), 0x49, 0x6D, 0x97, 0xAA);
+    sc_clip[0] = 0x4A; sc_clip[1] = 0x6E; sc_clip[2] = 0x97; sc_clip[3] = 0xAA;   /* hud_line_clip's window, inclusive -> exclusive */
+    sc_iclip[0] = 0x4A; sc_iclip[1] = 0x6E; sc_iclip[2] = 0x97; sc_iclip[3] = 0xAA;
+    sc_pose(pass_alpha);
+    sc_k = 1.0 / (double)(1u << ((7 - DSB(0x4082)) & 31));
+    int n = 1;
+    if ((s16)DSW(0x4082) < 2 && DSW(0x98DE) != 0) n = (1 << ((2 - DSB(0x4082)) & 31)) + 1;
+    const u16 gx = DSW(0xC0A4) & 0xFC00, gy = DSW(0xC0B2) & 0xFC00;
+    for (int i = 1 - n; i <= n; i++) {                        /* the grid: vertical lines, then horizontal ones (1024 cells apart) */
+        const ScP a = sc_w2s((s16)((i << 10) + gx), (s16)(gy + 0x1400)), b = sc_w2s((s16)((i << 10) + gx), (s16)(gy - 0x1000));
+        enh_vec_line_f(seg, a.x, a.y, b.x, b.y, 8, sc_clip);
+    }
+    for (int i = 1 - n; i <= n; i++) {
+        const ScP a = sc_w2s((s16)(gx + 0x1400), (s16)((i << 10) + gy)), b = sc_w2s((s16)(gx - 0x1000), (s16)((i << 10) + gy));
+        enh_vec_line_f(seg, a.x, a.y, b.x, b.y, 8, sc_clip);
+    }
+    for (int i = 0; (s16)DSW(0xDED0) > i; i++) {              /* the air units */
+        const u16 o = (u16)(0xC13E + 0x24 * i);
+        if (!(DSB(o + 0x18) & 2) || DSW(o + 0x1A) == 0) continue;
+        double x, y;
+        obj_cells(ENH_OBJ_UNIT, i, (u16)(o + 2), &x, &y);
+        const ScP p = sc_w2s(x, y);
+        if (!p.vis) continue;
+        if (DSW(0xE2FE) == 1 && (s16)DSW(0x3D64) == i) sc_box(seg, p, 7);
+        if ((s16)DSW(0x3D6A) > 0 && (u16)(0xFFFF - i) == DSW(0xC07E)) sc_box(seg, p, (s16)DSW(0x9872));
+        s16 a = (s16)(DSW(o + 0x10) - DSW(0x2DEE));
+        a = (s16)(a + 0x800);
+        const s16 dz = (s16)(DSW(o + 6) - DSW(0x2DF4));
+        const int cls = dz < -1000 ? 1 : dz > 1000 ? 2 : 0;
+        sc_icon(seg, (a >> 12) & 0xF, cls, p);
+    }
+    for (int i = 0; i < 12; i++) {                            /* the missile and projectile tracks */
+        const u16 t = (u16)(0x3C0C + 0x1C * i);
+        if (DSW(t + 0xE) == 0) continue;
+        double x, y;
+        obj_cells(ENH_OBJ_PROJ, i, t, &x, &y);
+        const ScP p = sc_w2s(x, y);
+        if (!p.vis) continue;
+        u8 c = (s16)DSW((u16)(0x336E + 0x12 * DSW(t + 0x10))) > 0 ? 0x11 : 0x29;
+        if (i >= 8) c = 0xF;
+        const double a = (u16)(DSW(t + 8) - DSW(0x2DEE)) * (6.283185307179586 / 65536.0);
+        enh_vec_line_f(seg, p.x, p.y, p.x - sin(a) * r, p.y + cos(a) * r, c, sc_clip);
+    }
+    for (int i = 0; (s16)DSW(0xC0B4) > i; i++) {              /* the sites */
+        const u16 s = (u16)(0xB2A2 + 16 * i), fl = DSW(s + 8);
+        if ((fl & 0x80) && !(fl & 0x200)) continue;
+        const ScP p = sc_w2s((s16)DSW(s + 2), (s16)DSW(s + 4));
+        if (!p.vis) continue;
+        if (DSW(0xE2FE) == 2 && (s16)DSW(0x3D66) == i) sc_box(seg, p, 7);
+        if ((s16)DSW(0x3D6A) > 0 && DSW(0xC07E) == i) sc_box(seg, p, (s16)DSW(0x9872));
+        int c = 5;
+        if (DSW(s + 8) & 0x201) c = ((((u16)(0x1000 - DSW(0x2DEE))) & 0x6000) >> 13) + 8;
+        if (DSW(s + 6) != 0) c = 1;
+        if (DSB(s + 8) & 8) c = 7;
+        sc_icon(seg, c, 3, p);
+    }
+    mfd_icon(0, 3, 0x70, 0x98);                               /* the ownship (w2s of the aircraft: the scope's origin) */
+    for (int i = 0; i < 4; i++) {                             /* the countermeasure marks */
+        const u16 m = (u16)(0x39AA + 12 * i);
+        if (DSW(m + 8) == 0) continue;
+        const ScP p = sc_w2s((s16)DSW(m), (s16)DSW(m + 2));
+        if (!p.vis) continue;
+        switch (DSW(m + 6)) {
+        case 1: sc_icon(seg, 2, 3, p); break;
+        case 2: sc_icon(seg, 3, 3, p); break;
+        case 3: sc_icon(seg, 6, 3, p); break;
+        }
+    }
+    /* the trace (o-line "scope"): a grid crossing (a fixed world point of this frame: the aircraft's 1024-cell corner at F_k) where this pass drew it, and
+     * at t = 0 / 1, in 1/64 pixel; the third component is the heading */
+    TraceRow *tr = trace_row(4, (s8)DSB(0x4082));
+    if (tr) {
+        double fx_, fy_;
+        u16 fh;
+        enh_interp_own(1.0, &fx_, &fy_, &fh);
+        const double px = (double)((u16)floor((fx_ + 16) / 32.0) & 0xFC00), py = (double)((u16)floor(0x8000 - (fy_ + 16) / 32.0) & 0xFC00);
+        const double ts[3] = { pass_alpha, 0.0, 1.0 };
+        int *dst[3] = { tr->v, tr->a, tr->b };
+        for (int e = 0; e < 3; e++) {
+            sc_pose(ts[e]);
+            const ScP g = sc_w2s(px, py);
+            double hx, hy;
+            u16 hh;
+            enh_interp_own(ts[e], &hx, &hy, &hh);
+            dst[e][0] = (int)lround(g.x * 64); dst[e][1] = (int)lround(g.y * 64); dst[e][2] = hh; dst[e][3] = 0;
+        }
+    }
+    return true;
+}
+
 void enh_map_trace(FILE *f, unsigned long long frame, int pass)
 {
-    static const char *const name[4] = { "mapown", "mapunit", "mapproj", "mapscroll" };
+    static const char *const name[5] = { "mapown", "mapunit", "mapproj", "mapscroll", "scope" };
     if (!f) return;
     for (int i = 0; i < tn; i++) {
         const TraceRow *r = &trow[i];
@@ -494,7 +685,7 @@ void enh_map_stats(FILE *f)
     if (!st_frames) return;
     fprintf(f, "display-map: %llu frames with the map shown, %llu redrawn per refresh; aircraft marker moved %llu, held %llu; blips moved %llu of %llu; "
             "tags not at F_k %llu; log overflows %llu; replay check %llu frames, %llu differ; %.3f ms a pass (%llu passes); terrain cache renders %llu, %.2f ms each; "
-            "terrain check %llu renders, %llu pixels differ inside (max %llu a render), %llu near the edge; cache overlap %llu, %llu pixels differ (max %llu); original recentres %llu\n", st_frames, st_active, st_own,
+            "terrain check %llu renders, %llu pixels differ inside (max %llu a render), %llu near the edge; cache overlap %llu, %llu pixels differ (max %llu); original recentres %llu; window check %llu passes, %llu pixels beyond the world, %llu changed outside; scope %llu passes\n", st_frames, st_active, st_own,
             st_own_held, st_blips_lerp, st_blips, st_tag_bad, st_over, st_chk, st_chk_bad, st_passes ? (double)st_ns / (double)st_passes / 1e6 : 0.0, st_passes,
-            st_builds, st_builds ? (double)st_build_ns / (double)st_builds / 1e6 : 0.0, st_tchk, st_tchk_px, st_tchk_max, st_tchk_edge, st_ovl, st_ovl_px, st_ovl_max, st_recentre);
+            st_builds, st_builds ? (double)st_build_ns / (double)st_builds / 1e6 : 0.0, st_tchk, st_tchk_px, st_tchk_max, st_tchk_edge, st_ovl, st_ovl_px, st_ovl_max, st_recentre, st_cov, st_uncov, st_outside, st_scope);
 }

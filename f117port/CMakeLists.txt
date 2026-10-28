@@ -37,6 +37,10 @@ else()
     target_compile_options(f117 PRIVATE -Wall -Wextra -fno-strict-aliasing)
 endif()
 if(WIN32)
+    # ENH: S4.6 fix 3: the manifest (src/f117.manifest): started without a console (Explorer, the launcher) Windows 11 24H2+ opens no console window
+    # before the game's; from a console or with redirected output (the tests) nothing changes.
+    enable_language(RC)
+    target_sources(f117 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/f117.rc)
     # SDL3.dll, then what it loads in turn (MSYS2's SDL3.dll needs libiconv-2.dll), found where the compiler's
     # own DLLs are. Without it Windows takes whatever libiconv-2.dll is on the PATH; a 32-bit one fails with
     # 0xc000007b.

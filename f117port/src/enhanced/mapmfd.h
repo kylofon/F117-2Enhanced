@@ -33,5 +33,6 @@ void enh_map_frame(void);                   /* enh_frame_begin (live A_k), after
 bool enh_map_active(void);                  /* this frame's passes redraw the map (then a refresh at alpha 1 is a pass, not the canonical render) */
 void enh_map_prepare(double alpha);         /* in a display pass on A_k, first: the terrain cache rendered when due (then A_k is loaded again) */
 void enh_map_apply(double alpha);           /* in a display pass on A_k, after enh_interp_apply, before view_frame */
+bool enh_scope_pass(int flip);              /* fix 1: mfd_scope_draw in a display pass, unrounded (true = drawn, skip the original) */
 void enh_map_trace(FILE *f, unsigned long long frame, int pass);   /* --fps-trace: the positions this pass drew (o-lines, classes mapown / mapunit / mapproj) */
 void enh_map_stats(FILE *f);                /* the display-map exit line */

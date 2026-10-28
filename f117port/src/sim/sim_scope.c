@@ -1,5 +1,7 @@
 /* The left MFD's situation scope (spec simflow.md Part 7 section 2): world to scope coordinates (90B9), the target frame (903F) and the scope itself (8C10): a
  * grid, the air units with their icons, the missile tracks, the sites, the ownship and the countermeasure marks, all clipped to the MFD box. */
+#include "enhanced/mapmfd.h"    /* ENH: S4.6 */
+#include "enhanced/sandbox.h"   /* ENH: S4.6 */
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
 
@@ -41,6 +43,7 @@ void mfd_target_box(int x, int y, int col)
 /* 0000:8C10 mfd_scope_draw */
 void mfd_scope_draw(int flip)
 {
+    if (enh_sbx && enh_scope_pass(flip)) return;   /* ENH: S4.6 fix 1, the scope unrounded between steps */
     int r = (s16)DSW(0x4082) + 1;
     gfx_set_fg(0);
     fill_rows_far(ctx_ptr((u8)flip ? CTX_P1_PTR : CTX_P0_PTR), 0x49, 0x6D, 0x97, 0xAA);

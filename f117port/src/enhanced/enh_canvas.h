@@ -99,8 +99,11 @@ void enh_vec_put(int lx, int ly, u8 c);                 /* S3.1: a vector-layer 
 typedef struct EnhRectSnap EnhRectSnap;
 EnhRectSnap *enh_rect_snap(int x, int y, int w, int h);
 void enh_rect_unsnap(EnhRectSnap *s);
+void enh_rect_drop(EnhRectSnap *s);                     /* forget it (nothing put back) */
 void enh_cap_shift(int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg);
 void enh_win_shift(u16 seg, int x, int y, int w, int h, int ox, int oy, const int clip[4], void (*op)(void *), void *arg);
+void enh_vec_line_f(u16 seg, double x0, double y0, double x1, double y1, u8 c, const int clip[4]);   /* fix 1: a thin line between sub-pixel points */
+unsigned long long enh_rect_changed_outside(const EnhRectSnap *s, const int in[4]);   /* fix 2 test aid */
 typedef struct { int w, h, n; size_t cap, pcap; u8 *pg; u16 *l3; u8 *l3n; } EnhMapCache;
 bool enh_map_cache_grab(EnhMapCache *c, u16 seg, int x, int y, int w, int h);
 void enh_map_cache_put(const EnhMapCache *c, u16 seg, int x, int y, int w, int h, int sxl, int syl);

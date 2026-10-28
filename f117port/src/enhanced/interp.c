@@ -168,6 +168,16 @@ void enh_interp_frame(void)
 }
 
 bool enh_interp_lerp(void) { return lerp_ok; }
+/* S4.6 fix 1: the own aircraft at t, unrounded: world x / y (BA10 / C02A) and the heading (2DEE, shortest arc); F_k when the frame holds */
+void enh_interp_own(double t, double *x, double *y, u16 *hdg)
+{
+    if (!lerp_ok || t >= 1.0) { *x = fc.x; *y = fc.y; *hdg = fc.hdg; return; }
+    if (t < 0) t = 0;
+    *x = fp.x + ((double)fc.x - fp.x) * t;
+    *y = fp.y + ((double)fc.y - fp.y) * t;
+    *hdg = (u16)(fp.hdg + (int)lround(ang_d(fp.hdg, fc.hdg) * t));
+}
+
 /* S4.6: a unit's / projectile's map cells (+0 / +2 of its record) at t, unrounded (the map MFD moves its blip by sub-pixels); false = not interpolated
  * (then *x / *y = F_k's). kx / ky: F_k's cells (the step plotted the blip there) */
 bool enh_interp_cells(int cls, int slot, double t, double *x, double *y, u16 *kx, u16 *ky)

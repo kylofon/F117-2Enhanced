@@ -244,8 +244,8 @@ def jerk_check(frames, k):
 
 
 OBJ_RE = re.compile(r'^o (\d+) (\d+) (\w+) (\d+) v=(\S+) a=(\S+) b=(\S+)')
-OBJ_CLASSES = ('unit', 'proj', 'tracer', 'smoke', 'wreck', 'spin', 'ring', 'fpm', 'mapown', 'mapunit', 'mapproj', 'mapscroll')   # S4.6: the map MFD
-MAP_CLASSES = ('mapown', 'mapunit', 'mapproj', 'mapscroll')   # v = x, y in 1/64 of an original pixel (continuous), the layer pixel drawn x, y (mapscroll: of a world point)
+OBJ_CLASSES = ('unit', 'proj', 'tracer', 'smoke', 'wreck', 'spin', 'ring', 'fpm', 'mapown', 'mapunit', 'mapproj', 'mapscroll', 'scope')   # S4.6: the map MFD, the scope
+MAP_CLASSES = ('mapown', 'mapunit', 'mapproj', 'mapscroll', 'scope')   # v = x, y in 1/64 of an original pixel (continuous), the layer pixel drawn x, y (mapscroll: of a world point)
 
 
 def obj_delta(cls, i, a, b):
@@ -330,7 +330,8 @@ def jerk_run(exe, game, work, name, extra, vclock=True, keys=None, frames=None):
 MAP_RE = re.compile(r'display-map: (\d+) frames with the map shown, (\d+) redrawn per refresh; aircraft marker moved (\d+), held (\d+); blips moved (\d+) of (\d+); '
                     r'tags not at F_k (\d+); log overflows (\d+); replay check (\d+) frames, (\d+) differ')
 MAP2_RE = re.compile(r'terrain cache renders (\d+), ([\d.]+) ms each; terrain check (\d+) renders, (\d+) pixels differ inside \(max (\d+) a render\), (\d+) near the edge; '
-                     r'cache overlap (\d+), (\d+) pixels differ \(max (\d+)\); original recentres (\d+)')
+                     r'cache overlap (\d+), (\d+) pixels differ \(max (\d+)\); original recentres (\d+); window check (\d+) passes, (\d+) pixels beyond the world, '
+                     r'(\d+) changed outside; scope (\d+) passes')
 # S4.6: the zoom run: the chain's start keys, then z (zoom in) 7 times once the flight has begun (zoom 9, the largest scale: about 1.15 original pixels a step
 # at 380 kt, the original recentres its map about every 55 steps), 250 frames there, then x (zoom out) back to zoom 2 (8 for 100 frames: a recentre too;
 # 7..2 for 30 frames each): every zoom is shown and its cache rendered (and compared with the original's window)
@@ -375,11 +376,12 @@ def map_check(out, ost, what, min_own, tr=None, k=4):
     sc = scroll_continuity(tr, k) if tr else (0, 0, [], 0.0)
     ok = v[9] == 0 and v[8] > 0 and v[6] == 0 and v[7] == 0 and v[2] >= min_own and ost['mapscroll']['frames'] >= min_own
     ok = ok and w[0] > 0 and w[2] > 0 and w[4] <= 4 and w[7] == 0 and sc[0] >= min_own - 10 and sc[1] == 0
+    ok = ok and w[10] >= v[1] and w[11] == 0 and w[12] == 0      # fix 2: every redrawn pass covers exactly the window: no pixel beyond the world, none outside
     ok = ok and all(ost[c]['uneven'] == 0 and ost[c]['back'] == 0 and ost[c]['off'] == 0 for c in MAP_CLASSES)
     print('enh_fps_jerk map (S4.6, %s): %d frames with the map, %d redrawn per refresh, marker moved %d / held %d, blips moved %d of %d, tags off %d, '
           'replay check %d frames %d differ; cache renders %d (%.2f ms), terrain check %d renders %d inside (max %d a render) / %d edge pixels, overlaps %d with %d pixels, '
-          'original recentres %d; scroll: %d frame pairs, %d jumps, zooms %s, %.1f pixels; trace (frames / uneven / backward / not ending on F_k, worst): %s%s'
-          % (what, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[8], v[9], w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[9], sc[0], sc[1],
+          'original recentres %d; window check %d passes, %d pixels beyond the world, %d changed outside; scroll: %d frame pairs, %d jumps, zooms %s, %.1f pixels; trace (frames / uneven / backward / not ending on F_k, worst): %s%s'
+          % (what, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[8], v[9], w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[9], w[10], w[11], w[12], sc[0], sc[1],
              ','.join(str(z) for z in sc[2]), sc[3],
              '; '.join('%s %d/%d/%d/%d %.1f %%' % (c, ost[c]['frames'], ost[c]['uneven'], ost[c]['back'], ost[c]['off'], 100 * ost[c]['worst']) for c in MAP_CLASSES),
              '' if ok else '  BAD'))
@@ -405,6 +407,38 @@ def map_zoom(exe, game, work, k):
     print('enh_fps_jerk map (zoom run): zooms %s, scrolled %.1f original pixels, original recentres %d, cache overlaps %d%s'
           % (','.join(str(z) for z in sc[2]), sc[3], w[9], w[6], '' if ok else '  BAD'))
     return 1 if bad or not ok else 0
+
+
+# S4.6 fix 1: the scope run: F3 (the scope in the left MFD), its range zoomed in 3 times, then a roll left and right (held arrow keys) so the heading turns
+SCOPE_KEYS = '1:31,2:03,11:39,62:3d,63:2c,63.5:2c,64:2c,75:4bp,79:4br,80:4dp,86:4dr'
+SCOPE_FRAMES = 300
+
+
+def scope_run(exe, game, work, k):
+    """S4.6 fix 1: the scope (the "grid radar view") is redrawn unrounded by every pass: per refresh a grid crossing's place (o-line scope) steps evenly, never
+    backward, ends on F_k, in a run where the heading turns (at least 0x2000)"""
+    p, tr, secs = jerk_run(exe, game, work, 'jerk_scope', '--fps-test %d' % k, keys=SCOPE_KEYS, frames=SCOPE_FRAMES)
+    if p.returncode != 0 or not os.path.isfile(tr):
+        print('enh_fps_jerk scope FAILED: the run ended with %d (%s)' % (p.returncode, p.stderr[-400:]))
+        return 1
+    ost, obad = obj_jerk(tr, k)
+    for b in obad[:10]:
+        print('  ' + b)
+    turned, last = 0, None
+    for l in open(tr):
+        m = OBJ_RE.match(l)
+        if m and m.group(3) == 'scope' and int(m.group(2)) == k:
+            h = int(m.group(5).split(',')[2])
+            if last is not None:
+                turned += abs((h - last + 0x8000) % 0x10000 - 0x8000)
+            last = h
+    m2 = MAP2_RE.search(p.stdout)
+    sp = int(m2.group(14)) if m2 else 0
+    o = ost['scope']
+    ok = o['frames'] >= 150 and o['uneven'] == 0 and o['back'] == 0 and o['off'] == 0 and turned >= 0x2000 and sp > 0
+    print('enh_fps_jerk scope (S4.6 fix 1, %.0f s): %d passes redrew the scope; trace %d frames / %d uneven / %d backward / %d not ending on F_k (worst %.1f %%), '
+          'the heading turned 0x%x%s' % (secs, sp, o['frames'], o['uneven'], o['back'], o['off'], 100 * o['worst'], turned, '' if ok else '  BAD'))
+    return 0 if ok else 1
 
 
 def jerk(exe, game, work):
@@ -437,7 +471,7 @@ def jerk(exe, game, work):
     if not ok:
         print('enh_fps_jerk FAILED')
         return 1
-    if map_check(p.stdout if p.stdout else '', ost, 'view sweep, zoom 2', 100, tr, k)[0] or map_zoom(exe, game, work, k):
+    if map_check(p.stdout if p.stdout else '', ost, 'view sweep, zoom 2', 100, tr, k)[0] or map_zoom(exe, game, work, k) or scope_run(exe, game, work, k):
         print('enh_fps_jerk FAILED')
         return 1
     # real time: alpha from the display clock

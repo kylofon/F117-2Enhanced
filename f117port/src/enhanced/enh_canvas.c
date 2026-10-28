@@ -1,4 +1,6 @@
 /* The Enhanced canvas, layers, shadow plane and compositor (see enh_canvas.h; DESIGN.md 2.1, 2.5, 3.1, 3.2). */
+#include <limits.h>
+#include <math.h>
 #include "enhanced/enh_canvas.h"
 
 #include <stdio.h>
@@ -975,6 +977,8 @@ static EnhRectSnap *rect_snap(int x, int y, int w, int h, bool vec_only)
 
 EnhRectSnap *enh_rect_snap(int x, int y, int w, int h) { return rect_snap(x, y, w, h, false); }
 
+void enh_rect_drop(EnhRectSnap *s) { snap_free(s); }
+
 void enh_rect_unsnap(EnhRectSnap *s)
 {
     if (!s) return;
@@ -1076,6 +1080,57 @@ void enh_win_shift(u16 seg, int x, int y, int w, int h, int ox, int oy, const in
     snap_io(s, false);
     emit_all(seg, clip);
     snap_free(s);
+}
+
+/* S4.6 fix 1: a line between two points given in frame pixels with fractions (a 1x pixel x covers [x, x + 1)), drawn thin in the vector layer of `seg`'s plane as
+ * S3.3 draws the HUD lines (max(1, N/2) layer pixels wide), clipped to the 1x rectangle clip = x0, y0, x1, y1 (exclusive) */
+void enh_vec_line_f(u16 seg, double x0, double y0, double x1, double y1, u8 c, const int clip[4])
+{
+    const int n = enh_cv.n, bw = n / 2 > 1 ? n / 2 : 1;
+    const double ax = enh_cv.fx + (x0 + 0.5) * n - bw / 2.0, ay = enh_cv.fy + (y0 + 0.5) * n - bw / 2.0;
+    const double bx = enh_cv.fx + (x1 + 0.5) * n - bw / 2.0, by = enh_cv.fy + (y1 + 0.5) * n - bw / 2.0;
+    const double dx = bx - ax, dy = by - ay;
+    const int steps = (int)ceil(fmax(fabs(dx), fabs(dy)));
+    const int cx0 = enh_cv.fx + clip[0] * n, cy0 = enh_cv.fy + clip[1] * n, cx1 = enh_cv.fx + clip[2] * n, cy1 = enh_cv.fy + clip[3] * n;
+    int lastx = INT_MIN, lasty = INT_MIN;
+    for (int i = 0; i <= steps; i++) {
+        const double t = steps ? (double)i / steps : 0.0;
+        const int lx = (int)floor(ax + dx * t + 0.5), ly = (int)floor(ay + dy * t + 0.5);
+        if (lx == lastx && ly == lasty) continue;
+        lastx = lx; lasty = ly;
+        for (int ky = 0; ky < bw; ky++)
+            for (int kx = 0; kx < bw; kx++) {
+                const int px = lx + kx, py = ly + ky;
+                if (px < cx0 || py < cy0 || px >= cx1 || py >= cy1) continue;
+                vec_put_seg(seg, px, py, c);
+            }
+    }
+}
+
+/* S4.6 fix 2 test aid: the 1x pixels of the snapshot's rectangle outside the 1x rectangle `in` (exclusive) whose page bytes, records or layer pixels changed */
+unsigned long long enh_rect_changed_outside(const EnhRectSnap *s, const int in[4])
+{
+    unsigned long long d = 0;
+    const int n = s->n, ln = s->w * n;
+    for (int p = 0; p < s->np; p++) {
+        const u8 *pg = seg_ptr(s->seg[p]);
+        Shadow *sh; u16 *l3, *lv; u8 *l3n;
+        plane_of(p, s->np, &sh, &l3, &lv, &l3n);
+        for (int j = 0; j < s->h; j++)
+            for (int i = 0; i < s->w; i++) {
+                const int x = s->x + i, y = s->y + j;
+                if (x >= in[0] && y >= in[1] && x < in[2] && y < in[3]) continue;
+                const int o = y * 320 + x;
+                bool ch = pg[o] != s->pg[p][j * s->w + i] || memcmp(&sh[o], &s->rec[p][j * s->w + i], sizeof(Shadow));
+                for (int ky = 0; ky < n && !ch; ky++) {
+                    const size_t at = (size_t)(enh_cv.fy + y * n + ky) * enh_cv.lw + (size_t)(enh_cv.fx + x * n), so = (size_t)(j * n + ky) * ln + (size_t)i * n;
+                    for (int kx = 0; kx < n && !ch; kx++)
+                        ch = lv[at + kx] != s->lv[p][so + kx] || (!s->vec_only && (l3[at + kx] != s->l3[p][so + kx] || l3n[at + kx] != s->l3n[p][so + kx]));
+                }
+                d += ch;
+            }
+    }
+    return d;
 }
 
 /* the map cache: the rectangle of `seg` with every pixel as 3D-layer pixels (a 3D write keeps its layer pixels, anything else becomes its 1x value N x N) */

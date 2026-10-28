@@ -698,7 +698,9 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
   (`enh_map_frame`, after `enh_interp_frame`) the log of step k-1 becomes this frame's; the marker keeps its last two steps. The map is redrawn by every pass
   while it is shown and the log is complete, holds included (the marker then at its last step): otherwise a hold would show the original's placement for a frame.
 * **The map's centre** is the marker's position between its last two steps (the cells with the fraction 39C4's rounding dropped), lerped by alpha (shortest
-  arc for the heading), never extrapolated; held at the last step when they are not consecutive steps or more than 32 cells apart.
+  arc for the heading), never extrapolated; held at the last step when they are not consecutive steps or more than 32 cells apart. It is clamped as 8387
+  clamps its centre (x within `4Dh << (9 - z)` cells of the world's edge, y within `((3Ch << (9 - z)) / 3) << 2`; fix 1), so near an edge the marker moves
+  off the centre instead of the window showing beyond the world.
 * **The terrain cache** (cheaper than a terrain render per refresh): in the first pass that needs it (`enh_map_prepare`, before `enh_interp_apply`), the map
   window grown by 24 pixels on every side (125 x 108 at (50, 86), same centre, so 119C's camera and tile bounds follow the window) is cleared (colour 6) and drawn
   as 8387 draws the window: `map_render_terrain` at N x and the site dots, with the map at cells on the grid of whole map pixels in x and of whole 3/4-row groups
@@ -721,6 +723,31 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 * **Alpha 1.** The map's alpha-1 picture is not the canonical frame's, so a refresh at alpha 1 is a pass while the map is redrawn (`enh_map_active`, S4.3 reuse
   off in the views that are not extended: `--no-wide` / the second cockpit view ~5 ms instead of ~1 by day). A frame that loads a cockpit picture (switching
   into the cockpit) is shown live after its flip with the original's map for that one frame.
+* **Fix 1 (U1 feedback 2026-10-28: "the grid radar view is not smooth and the shimmer is there; the normal map view is offset from the cockpit mask, the top
+  and right edges are empty bands; a ghost window appears when launching the game").**
+  * *Empty bands:* the scrolled map's centre was not clamped. 8387 keeps its centre `lim` cells from the world's edge; centred on the aircraft, the window
+    showed beyond the world (the clear colour, 6) wherever the aircraft was nearer the edge than half the window (at zoom 2 the window is 19 712 cells wide:
+    the test pose 4 288 cells from the west edge showed a 21-pixel band). Now clamped (above). New test aid, the window check (with `--fps-trace` /
+    `F117_MAP_CHECK=1`, every redrawn pass): the window's pixels whose world point is beyond the world (must be 0) and the pixels of a ring 8 pixels around the
+    window whose page, records or layers changed (must be 0: nothing drawn outside the mask); in `enh_fps_jerk` 636 (view sweep) + 2028 (zoom run) passes, 0 / 0.
+  * *The scope* (the left MFD's other page, F3: heading-up, a world grid every 1024 cells, icons; `mfd_scope_draw` 8C10, drawn by the render, so every pass
+    already redrew it) stepped and shimmered because every point goes through `mfd_w2s` (90B9): the integer cells' offset from C0A4 / C0B2 shifted right by
+    `7 - [4082]`, rotated by the heading in Q15 and rounded to a whole pixel. The lerped pose moves it in whole pixels, and as the lerped heading turns, the
+    rounding of each rotated grid point flips by a pixel (the shimmer). In a display pass `enh_scope_pass` (hook at the top of `mfd_scope_draw`) draws the same
+    page unrounded: the pose from `enh_interp_own` (the own aircraft at alpha, unrounded), the units / missiles from `enh_interp_cells`, the points rotated in
+    double; the grid, target boxes and missile tracks as thin vector-layer lines between sub-pixel points (`enh_vec_line_f`, S3.3's width), the icons as the
+    original 7 x 7 icons moved by the fraction (`enh_cap_shift`); the fill, order, colours, what is shown and the visibility test are the original's. The grid
+    moves with the world, as in the original (heading-up), now continuously. Test: `enh_fps_jerk` scope run (F3, range zoomed in, a roll left and right):
+    o-line `scope` (a grid crossing's place per refresh) 264 frames, 0 uneven, 0 backward, 0 not ending on F_k, the heading turned 0x3C3D.
+  * *The ghost window* was the console: the game is a console program (as the faithful release and v0.1.0), so Windows opened a console for it when it was
+    started from Explorer or by the launcher's `wxExecute`; on Windows 11 that is a Windows Terminal window, measured 0.15 s after the start, before the game's
+    window (0.8 s). Not introduced by a commit (v0.1.0 does the same). The game keeps the console subsystem (a GUI-subsystem build lost the output of the
+    tests that start it without redirection: `render3d_leaf`), and its new application manifest (`src/f117.manifest`, `src/f117.rc`) sets
+    `consoleAllocationPolicy` = detached: started without a console (Explorer, the launcher) Windows 11 24H2 and later allocate none; from a console or a pipe
+    it writes there as before (older Windows ignore the setting). Measured: one window (the game's) at the start; the output reaches a parent console and a
+    pipe.
+  * The S4.3 reuse of the canonical render is off while the map or the scope is shown (both keep sub-pixel places at alpha 1); `enh_one_render`'s two
+    `--no-wide` reuse runs now switch to the left view (no MFDs) at 62 s.
 * **Not changed:** the 8 marker sprites (45-degree steps), the missile blips' blink and the arc's growth (per step), the 1x look of the target squares and dots
   (N x N blocks, now at layer-pixel positions), the route's 1x endpoints.
 * **Tests.** `enh_fps_jerk` (ctest): per pass o-lines `mapscroll` (the centre from a fixed world point in 1/64 pixel, and the drawn layer pixel of the world
@@ -777,6 +804,8 @@ inputs) run only from `host_pump` in real time, never in a display pass: sound t
 | `main` test dispatch | `main.c` | `--interp-test` -> `enh_interp_selftest()` | S4.2 |
 | `view_frame` case 0x84 | `sim/sim_view.c` | lerp the ring pose in sandbox (as built: no hook, the pass's copy of the slot is lerped, 4.10) | S4.2 |
 | `mfd_map_save_bg / restore_bg / plot / route / arc`, `sim_frame_step` (target and aircraft markers), `ai_update_units`, `wpn_proj_update_all` | `sim/sim_mfd.c`, `sim/sim_step.c`, `flight/fl_ai.c`, `flight/fl_weapons.c` | `enh_map_log_*` / `enh_map_tag` (the step's map drawing logged for the display passes, 4.11) | S4.6 |
+| `mfd_scope_draw` | `sim/sim_scope.c` | `enh_scope_pass()` in a display pass (the scope unrounded, 4.11 fix 1) | S4.6 |
+| build | `CMakeLists.txt`, `src/f117.rc`, `src/f117.manifest` | the application manifest: no console window when started without one (4.11 fix 1) | S4.6 |
 
 ### 5.2 `--classic`
 `enh_parse_arg("--classic")` clears every option; each hook is `if (enh.<option>) …` (or `enh_active()`), so with classic

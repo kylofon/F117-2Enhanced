@@ -8,8 +8,8 @@ Runs (headless, virtual clock: every run is the same machine run; --fps-test 4 -
   sweep      the real-path view sweep of r3d_hr_wide_realpath (the home airbase, every view: extended, the second cockpit view, the frame-only views), 16:9 window
   night      the airbase in banked flight (F117_TEST_POSE) with --smooth-shading --true-night and the night palette, 16:9 window
   reuse      the same banked flight with --no-wide (canvas = frame): the 4th refresh of a frame (alpha 1) is the canonical render, compared with a pass;
-             F3 at 62 s shows the scope in the left MFD (S4.6: while the map MFD's symbols are redrawn per refresh, a refresh at alpha 1 is a pass, since the
-             marker keeps its sub-pixel position there and the canonical frame's is the whole pixel; the map itself is compared in the other runs)
+             the left view from 62 s (S4.6: in the cockpit views the map and the scope MFDs are redrawn per refresh at sub-pixel places, so a refresh at
+             alpha 1 is a pass there, not the canonical render; they are compared in the other runs)
   reuse_n    the same at night with smooth shading
   each: 0 refreshes that differ, every refresh compared, 0 forbidden calls; reuse runs: a quarter of the refreshes reused.
 Then the rate fallback, in real time (display clock, --fps 60): with F117_TEST_REFRESH_MS=20 (every pass 20 ms slower, as on a slow machine) most refreshes
@@ -51,7 +51,7 @@ def run(exe, game, work, name, window, extra, keys='1:31,2:03,11:39', frames=200
     return p.stdout
 
 
-REUSE_KEYS = '1:31,2:03,11:39,62:3d'   # S4.6: F3, the left MFD shows the scope (the map's symbols are not redrawn per refresh then)
+REUSE_KEYS = '1:31,2:03,11:39,62:2a+32'   # S4.6: the left view (no MFDs; the map and the scope are redrawn per refresh in the cockpit views)
 
 
 def field(out, pat):
