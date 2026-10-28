@@ -166,6 +166,16 @@ LauncherDialog::LauncherDialog()
     renderScale_->SetToolTip("How many times finer than the original 320x200 the 3D view and the displays are drawn; "
                              "Auto picks it from the window size.");
     enhGrid->Add(renderScale_, 0, wxALIGN_CENTER_VERTICAL);
+    frameLabel_ = new wxStaticText(eb, wxID_ANY, "Frame ra&te:");
+    enhGrid->Add(frameLabel_, 0, wxALIGN_CENTER_VERTICAL);
+    frameRate_ = new wxChoice(eb, wxID_ANY);
+    frameRate_->Append("Monitor");
+    frameRate_->Append("60");
+    frameRate_->Append("30");
+    frameRate_->Append("Off");
+    frameRate_->SetToolTip("How many pictures a second the game draws: Monitor follows the screen's refresh; 60 and 30 "
+                           "draw at that rate; Off draws one picture per game step.");
+    enhGrid->Add(frameRate_, 0, wxALIGN_CENTER_VERTICAL);
     enhBox->Add(enhGrid, 0, wxLEFT | wxRIGHT | wxTOP, gap);
     wide_ = new wxCheckBox(eb, wxID_ANY, "&Wide view");
     wide_->SetToolTip("Shows more of the world to the left and right of the original 4:3 picture on a wider window.");
@@ -220,6 +230,7 @@ LauncherDialog::LauncherDialog()
     sound_->SetValue(settings::GetInt(SECTION, "Sound", 1) != 0);
     speed_->SetValue(wxMax(MIN_TICKS, wxMin(MAX_TICKS, settings::GetInt(SECTION, "FrameTicks", DEFAULT_TICKS))));
     renderScale_->SetSelection(wxMax(0, wxMin(MAX_RENDER, settings::GetInt(SECTION, "RenderScale", 0))));
+    frameRate_->SetSelection(wxMax(0, wxMin(3, settings::GetInt(SECTION, "FrameRate", 0))));
     wide_->SetValue(settings::GetInt(SECTION, "Wide", 1) != 0);
     smooth_->SetValue(settings::GetInt(SECTION, "SmoothShading", 0) != 0);
     night_->SetValue(settings::GetInt(SECTION, "TrueNight", 0) != 0);
@@ -252,7 +263,7 @@ void LauncherDialog::FillScales() {
 
 void LauncherDialog::UpdateEnhanced() {
     const bool on = !classic_->GetValue();
-    for (wxWindow* w : std::initializer_list<wxWindow*>{renderLabel_, renderScale_, wide_, smooth_, night_}) w->Enable(on);
+    for (wxWindow* w : std::initializer_list<wxWindow*>{renderLabel_, renderScale_, frameLabel_, frameRate_, wide_, smooth_, night_}) w->Enable(on);
 }
 
 void LauncherDialog::UpdateState() {
@@ -307,6 +318,7 @@ GameOptions LauncherDialog::Options() const {
     options.frameTicks = speed_->GetValue();
     options.classic = classic_->GetValue();
     options.renderScale = renderScale_->GetSelection();
+    options.frameRate = frameRate_->GetSelection();
     options.wide = wide_->GetValue();
     options.smoothShading = smooth_->GetValue();
     options.trueNight = night_->GetValue();
@@ -341,6 +353,7 @@ void LauncherDialog::Save() {
     settings::SetInt(SECTION, "Sound", sound_->GetValue() ? 1 : 0);
     settings::SetInt(SECTION, "FrameTicks", speed_->GetValue());
     settings::SetInt(SECTION, "RenderScale", renderScale_->GetSelection());
+    settings::SetInt(SECTION, "FrameRate", frameRate_->GetSelection());
     settings::SetInt(SECTION, "Wide", wide_->GetValue() ? 1 : 0);
     settings::SetInt(SECTION, "SmoothShading", smooth_->GetValue() ? 1 : 0);
     settings::SetInt(SECTION, "TrueNight", night_->GetValue() ? 1 : 0);

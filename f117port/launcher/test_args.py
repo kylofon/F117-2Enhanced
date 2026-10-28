@@ -28,13 +28,23 @@ def check(name, args, present=(), absent=(), pairs=()):
         if k not in args or os.path.normcase(os.path.normpath(args[args.index(k) + 1])) != os.path.normcase(os.path.normpath(v)): fails.append("%s: %s %s expected" % (name, k, v))
 
 a = run("defaults", "")
-check("defaults", a, absent=["--classic", "--render-scale", "--no-wide", "--smooth-shading", "--true-night", "--fullscreen"],
+check("defaults", a, absent=["--classic", "--render-scale", "--fps", "--no-wide", "--smooth-shading", "--true-night", "--fullscreen"],
       pairs=[("--game-dir", os.path.join(work, "gamedir")), ("--frame-ticks", "7")])
 if not a[0].lower().endswith("f117-enhanced.exe"): fails.append("defaults: program %s" % a[0])
 a = run("scale4", "RenderScale=4\nWide=0\nSmoothShading=1\nTrueNight=1\nFullscreen=1\n")
 check("scale4", a, present=["--no-wide", "--smooth-shading", "--true-night", "--fullscreen"], absent=["--classic"], pairs=[("--render-scale", "4")])
-a = run("classic", "RenderScale=3\nWide=0\nSmoothShading=1\nTrueNight=1\nClassic=1\n")
-check("classic", a, present=["--classic"], absent=["--render-scale", "--no-wide", "--smooth-shading", "--true-night"])
+a = run("classic", "RenderScale=3\nWide=0\nSmoothShading=1\nTrueNight=1\nFrameRate=3\nClassic=1\n")
+check("classic", a, present=["--classic"], absent=["--render-scale", "--fps", "--no-wide", "--smooth-shading", "--true-night"])
+a = run("fps_monitor", "FrameRate=0\n")
+check("fps_monitor", a, absent=["--fps"])
+a = run("fps_60", "FrameRate=1\n")
+check("fps_60", a, absent=["--classic"], pairs=[("--fps", "60")])
+a = run("fps_30", "FrameRate=2\n")
+check("fps_30", a, absent=["--classic"], pairs=[("--fps", "30")])
+a = run("fps_off", "FrameRate=3\n")
+check("fps_off", a, absent=["--classic"], pairs=[("--fps", "off")])
+a = run("classic_fps60", "FrameRate=1\nClassic=1\n")
+check("classic_fps60", a, present=["--classic"], absent=["--fps"])
 a = run("auto_night", "RenderScale=0\nTrueNight=1\nFrameTicks=0\n")
 check("auto_night", a, present=["--true-night"], absent=["--render-scale", "--no-wide"], pairs=[("--frame-ticks", "0")])
 if fails:

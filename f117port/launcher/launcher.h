@@ -48,6 +48,8 @@ private:
     wxSpinCtrl* speed_ = nullptr;
     wxStaticText* renderLabel_ = nullptr;
     wxChoice* renderScale_ = nullptr;
+    wxStaticText* frameLabel_ = nullptr;
+    wxChoice* frameRate_ = nullptr;
     wxCheckBox* wide_ = nullptr;
     wxCheckBox* smooth_ = nullptr;
     wxCheckBox* night_ = nullptr;

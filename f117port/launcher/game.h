@@ -33,6 +33,7 @@ struct GameOptions {
     // Enhanced (f117-enhanced); --classic switches all of them off.
     bool classic = false;         // --classic
     int renderScale = 0;          // --render-scale N (0 = Auto: not passed, the game picks from the window)
+    int frameRate = 0;            // --fps: 0 = Monitor (not passed, the engine's default vsync), 1 = 60, 2 = 30, 3 = off
     bool wide = true;             // false: --no-wide
     bool smoothShading = false;   // --smooth-shading
     bool trueNight = false;       // --true-night

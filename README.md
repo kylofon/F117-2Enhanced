@@ -37,11 +37,12 @@ The errors the game reports go to `f117.log` beside the program.
 ```text
 f117-enhanced [--game-dir DIR] [--scale N] [--aspect 4:3|1:1] [--fullscreen] [--frame-ticks N]
               [--keys NAME=CODE,...] [--check] [--version]
-              [--classic] [--render-scale N] [--wide|--no-wide]
+              [--classic] [--render-scale N] [--fps vsync|60|30|off] [--wide|--no-wide]
               [--smooth-shading|--no-smooth-shading] [--true-night|--no-true-night]
 ```
 
 * `--classic`: every enhancement off, whatever else is given. `--render-scale N`: 1 to 8 times 320x200 (default Auto).
+* `--fps vsync|60|30|off`: pictures a second (default vsync: the monitor's refresh).
 * `--wide` (default) / `--no-wide`; `--smooth-shading`, `--true-night`: off by default.
 * The other options are the faithful port's; the remaining test options are listed at the top of `f117port/src/main.c`.
 
@@ -64,6 +65,7 @@ Needs CMake 3.24, a C11 compiler and SDL 3 (MSYS2 `mingw64`: `mingw-w64-x86_64-s
 plus an **Enhanced** box; its settings are kept in `%APPDATA%\F-117A Enhanced\settings.ini`.
 
 * **Render scale**: Auto, or 1 to 8 times the original 320x200.
+* **Frame rate** (`--fps`): Monitor (the default, not passed), 60, 30 or Off.
 * **Wide view**, **Smooth distance shading**, **True night**.
 * **Classic**: the original game; greys out the options above.
 

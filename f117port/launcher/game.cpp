@@ -89,6 +89,12 @@ std::vector<wxString> GameArguments(const GameOptions& o) {
             args.push_back("--render-scale");
             args.push_back(wxString::Format("%d", o.renderScale));
         }
+        // Monitor (0) is the engine's default (--fps vsync), so it is not passed, as Render scale Auto is not.
+        static const char* const frameRates[] = {nullptr, "60", "30", "off"};
+        if (o.frameRate > 0 && o.frameRate <= 3) {
+            args.push_back("--fps");
+            args.push_back(frameRates[o.frameRate]);
+        }
         if (!o.wide) args.push_back("--no-wide");
         if (o.smoothShading) args.push_back("--smooth-shading");
         if (o.trueNight) args.push_back("--true-night");
