@@ -581,6 +581,7 @@ bool enh_scope_pass(int flip)
     fill_rows_far(DSP(DSW((u8)flip ? CTX_P1_PTR : CTX_P0_PTR)), 0x49, 0x6D, 0x97, 0xAA);
     sc_clip[0] = 0x4A; sc_clip[1] = 0x6E; sc_clip[2] = 0x97; sc_clip[3] = 0xAA;   /* hud_line_clip's window, inclusive -> exclusive */
     sc_iclip[0] = 0x4A; sc_iclip[1] = 0x6E; sc_iclip[2] = 0x97; sc_iclip[3] = 0xAA;
+    { const int fr[4] = { 0x49, 0x6D, 0x98, 0xAB }; enh_vec_clear_rect(seg, fr); }   /* fix 3: the last pass's lines go with the fill */
     sc_pose(pass_alpha);
     sc_k = 1.0 / (double)(1u << ((7 - DSB(0x4082)) & 31));
     int n = 1;
