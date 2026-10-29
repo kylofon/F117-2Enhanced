@@ -1107,21 +1107,6 @@ void enh_vec_line_f(u16 seg, double x0, double y0, double x1, double y1, u8 c, c
     }
 }
 
-/* S4.6 fix 3: the 1x rectangle r = x0, y0, x1, y1 (exclusive) of `seg`'s plane as plain art: its vector layer cleared and its records SRC_NONE. The scope's fill
- * records through enh_rec_fill, which writes the work plane's records only, so on the shown plane the previous pass's line blocks stayed fresh SRC_VECHR and
- * their old sub-pixel lines showed beside the new ones (the stepped doubles along the diagonal grid lines) */
-void enh_vec_clear_rect(u16 seg, const int r[4])
-{
-    if (!enh_page_tracked(seg)) return;
-    Shadow *sh = plane_shown(seg) ? sh_shown : sh_work;
-    for (int y = r[1]; y < r[3]; y++)
-        for (int x = r[0]; x < r[2]; x++) {
-            const u16 off = (u16)(y * 320 + x);
-            vec_clear_block(off, seg);
-            sh[off].src = SRC_NONE;
-        }
-}
-
 /* S4.6 fix 2 test aid: the 1x pixels of the snapshot's rectangle outside the 1x rectangle `in` (exclusive) whose page bytes, records or layer pixels changed */
 unsigned long long enh_rect_changed_outside(const EnhRectSnap *s, const int in[4])
 {

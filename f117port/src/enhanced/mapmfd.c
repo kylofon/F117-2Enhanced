@@ -12,6 +12,7 @@
 #include "enhanced/sandbox.h"
 #include "gen/module_render3d.h"
 #include "gen/module_simflow.h"
+#include "gen/module_video.h"
 #include "mem.h"
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
@@ -581,7 +582,6 @@ bool enh_scope_pass(int flip)
     fill_rows_far(DSP(DSW((u8)flip ? CTX_P1_PTR : CTX_P0_PTR)), 0x49, 0x6D, 0x97, 0xAA);
     sc_clip[0] = 0x4A; sc_clip[1] = 0x6E; sc_clip[2] = 0x97; sc_clip[3] = 0xAA;   /* hud_line_clip's window, inclusive -> exclusive */
     sc_iclip[0] = 0x4A; sc_iclip[1] = 0x6E; sc_iclip[2] = 0x97; sc_iclip[3] = 0xAA;
-    { const int fr[4] = { 0x49, 0x6D, 0x98, 0xAB }; enh_vec_clear_rect(seg, fr); }   /* fix 3: the last pass's lines go with the fill */
     sc_pose(pass_alpha);
     sc_k = 1.0 / (double)(1u << ((7 - DSB(0x4082)) & 31));
     int n = 1;
@@ -647,6 +647,9 @@ bool enh_scope_pass(int flip)
         case 3: sc_icon(seg, 6, 3, p); break;
         }
     }
+    /* fix 3: the window to the other page, as view_frame copies it: view_frame ran before the HUD drew this scope, so the shown page kept the step's records for
+     * it (the flip copies only the 3D rows) while the layers went over; the new lines showed only where they lay on the step's rounded ones (the broken lines) */
+    blit_rect((s8)flip, 0x4A, 0x6E, 1 - (s8)flip, 0x4A, 0x6E, 0x4D, 0x3C);
     /* the trace (o-line "scope"): a grid crossing (a fixed world point of this frame: the aircraft's 1024-cell corner at F_k) where this pass drew it, and
      * at t = 0 / 1, in 1/64 pixel; the third component is the heading */
     TraceRow *tr = trace_row(4, (s8)DSB(0x4082));
