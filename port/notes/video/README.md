@@ -21,3 +21,13 @@ are deleted unless `--keep`.
 
 Runs: `takeoff` (day: runway, lift-off, view switching), `attack` (day: HARM on the SAM radar at Tripoli from the real-path test pose,
 `F117_TEST_POSE=20,0x8000,600,0`), `night` (the same attack with `F117_TEST_NIGHT=2` and `--true-night`).
+
+## Smoothness clips (user check)
+
+`python port/notes/video/smooth_clips.py [--only takeoff,harm,threat] [--keep] [--probe]` writes `work/smooth/<scenario>_compare.mp4` (left `--fps off`,
+right the display stream at 60 pictures a second, the same flight: the sim does not depend on the display) and `<scenario>_smooth.mp4` (full size), plus
+`work/smooth/report.txt` (pictures a second that move the scene, and the per-object-class evenness check of `e41/interp_equal.py` on the smooth run's
+`--fps-trace`). Headless there is no display clock, so the smooth runs use `--fps-test 6` (6 refreshes per step at alpha 1/6 .. 1) and the capture aid writes
+every refresh (`enh_record_sub`, a 7th column in `frames.txt`); the encoder spreads each step's pictures evenly over it. `--probe` runs the smooth flight
+without recording and prints its object counts (for choosing key scripts). Takes about 5 minutes for the three scenarios; the raw captures (several GB) are
+deleted unless `--keep`.

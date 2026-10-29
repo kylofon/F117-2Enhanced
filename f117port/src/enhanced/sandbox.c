@@ -12,6 +12,7 @@
 #include "enhanced/enhanced.h"
 #include "enhanced/interp.h"
 #include "enhanced/mapmfd.h"
+#include "enhanced/record.h"
 #include "host.h"
 #include "enhanced/wide.h"
 #include "gen/module_simflow.h"
@@ -497,6 +498,7 @@ static void refresh(double alpha, bool before_flip)
     const Uint64 d = SDL_GetTicksNS() - t0;
     disp_hash();                                              /* test aid, outside the timed stages */
     disp_dump();                                              /* S4.6 test aid */
+    if (enh.fps_test > 0 && disp_new) enh_record_sub(disp, disp_cv.lw, disp_cv.lh, alpha);   /* capture aid (F117_RECORD): every test refresh's picture */
     if (enh.fps_check) check_compare();
     frame_refreshes++;
     n_refresh++;

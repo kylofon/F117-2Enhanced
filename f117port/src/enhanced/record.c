@@ -11,6 +11,9 @@ static unsigned long long raw_off;
 static unsigned long long wav_frames;
 static double t_from = -1, t_to = -1, fps;
 static long long last_slot = -1;
+static double t_host;            /* the last host present: its time and presentation size (the --fps-test pictures are written with them) */
+static int vw_host, vh_host;
+static bool sub_on;              /* --fps-test pictures are being written: the host presents are not */
 
 static void wav_header(FILE *f, unsigned long long frames)
 {
@@ -52,6 +55,8 @@ bool enh_record_on(void)
 void enh_record_frame(const u32 *px, int w, int h, int vw, int vh, double t)
 {
     if (!enh_record_on() || !px) return;
+    t_host = t; vw_host = vw; vh_host = vh;
+    if (sub_on) return;
     if ((t_from >= 0 && t < t_from) || (t_to >= 0 && t > t_to)) return;
     if (fps > 0) {                                    /* one picture per 1/fps slot: the first one presented in it */
         const long long slot = (long long)(t * fps);
@@ -61,6 +66,17 @@ void enh_record_frame(const u32 *px, int w, int h, int vw, int vh, double t)
     const size_t n = (size_t)w * (size_t)h;
     fwrite(px, 4, n, f_raw);
     fprintf(f_idx, "%.6f %d %d %d %d %llu\n", t, w, h, vw, vh, raw_off);
+    raw_off += 4ull * n;
+}
+
+void enh_record_sub(const u32 *px, int w, int h, double alpha)
+{
+    if (!enh_record_on() || !px || !vw_host) return;
+    sub_on = true;
+    if ((t_from >= 0 && t_host < t_from) || (t_to >= 0 && t_host > t_to)) return;
+    const size_t n = (size_t)w * (size_t)h;
+    fwrite(px, 4, n, f_raw);
+    fprintf(f_idx, "%.6f %d %d %d %d %llu %.4f\n", t_host, w, h, vw_host, vh_host, raw_off, alpha);
     raw_off += 4ull * n;
 }
 

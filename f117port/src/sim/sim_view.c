@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "enhanced/enh_canvas.h"   /* ENH: */
+#include "enhanced/interp.h"       /* ENH: smooth clips */
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
 #include "sim/simtest.h"
@@ -113,8 +114,10 @@ void view_frame(void)
         } else {                                                          /* a weapon */
             u16 r = (u16)(0x3C0C + 0x1C * sel);
             if (DSW(r + 0xE) != 0) {
-                SETL(0xDE98, (u32)DSW(r) << 5);
-                SETL(0xDE9E, (u32)DSW(r + 2) << 5);
+                u32 wx = (u32)DSW(r) << 5, wy = (u32)DSW(r + 2) << 5;
+                enh_interp_proj_world(sel, &wx, &wy);                     /* ENH: in a display pass, between whole cells */
+                SETL(0xDE98, wx);
+                SETL(0xDE9E, wy);
                 DSW(0xDEA6) = DSW(r + 4);
             } else { DSW(r + 8) = DSW(0x2DEE); DSW(r + 0xA) = DSW(0x2DF0); }
         }

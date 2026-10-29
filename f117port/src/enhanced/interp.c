@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "enhanced/sandbox.h"
 #include "mem.h"
 #include "sim/sim_priv.h"
 
@@ -42,6 +43,7 @@ enum { JUMP_POS = 1024, JUMP_ALT = 0x800, JUMP_ANG = 0x4000 };
 enum { JUMP_UNIT = 2048, JUMP_CELLS = 512, JUMP_Z = 0x2000, JUMP_SMOKE_Z = 0x400, JUMP_FPM = 0x1000 };
 
 /* S4.2: per object whether its slot interpolates in this frame (the same object in F_{k-1} and F_k: slot + type, no jump) */
+static double pass_t = -1;   /* the alpha the running pass applied (-1: none) */
 static bool m_unit[OBJ_UNITS], m_proj[OBJ_PROJ], m_tr[OBJ_TRACERS], m_smoke[OBJ_SMOKE], m_wreck, m_spin, m_ring, m_fpm;
 static unsigned long long st_lerp[ENH_OBJ_CLASSES], st_held[ENH_OBJ_CLASSES];
 static int max_move[ENH_OBJ_CLASSES];   /* the largest move per step of a matched object (the jump limits' margin, the exit statistics) */
@@ -154,6 +156,7 @@ void enh_interp_reset(void) { fp.valid = fc.valid = false; lerp_ok = false; hold
 
 void enh_interp_frame(void)
 {
+    pass_t = -1;
     fp = fc;
     pose_read(&fc);
     lerp_ok = false;
@@ -192,6 +195,19 @@ bool enh_interp_cells(int cls, int slot, double t, double *x, double *y, u16 *kx
     if (t < 0) t = 0;
     *x = rw(a, 0) + d16(rw(a, 0), rw(b, 0)) * t;
     *y = rw(a, 2) + d16(rw(a, 2), rw(b, 2)) * t;
+    return true;
+}
+
+/* smooth clips: a projectile's world x / y (its cells x 32, as the renderer and the weapon view place it) in this pass, from the unrounded cells. A projectile
+ * record holds whole cells, so a pass's lerped cells moved the missile and the weapon camera in 32-unit steps (at 224 units a step and 6 refreshes:
+ * 32, 32, 64, 32, 32, 32, a judder close to the camera). False (the record's cells stand): not in a pass at alpha < 1, or not interpolated. */
+bool enh_interp_proj_world(int slot, u32 *wx, u32 *wy)
+{
+    double x, y;
+    u16 kx, ky;
+    if (pass_t < 0 || !enh_sbx || !enh_interp_cells(ENH_OBJ_PROJ, slot, pass_t, &x, &y, &kx, &ky)) return false;
+    *wx = (u32)llround(x * 32.0) & 0x1FFFFFu;
+    *wy = (u32)llround(y * 32.0) & 0x1FFFFFu;
     return true;
 }
 
@@ -253,8 +269,10 @@ static void objects_apply(double t)
 
 void enh_interp_apply(double t)
 {
+    pass_t = -1;
     if (!lerp_ok || t >= 1.0) return;
     if (t < 0) t = 0;
+    pass_t = t;
     const s32 x = lerp_l(fp.x, fc.x, t), y = lerp_l(fp.y, fc.y, t);
     DSL(0xBA10) = (u32)x;
     DSL(0xC02A) = (u32)y;

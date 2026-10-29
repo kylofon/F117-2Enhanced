@@ -4,6 +4,7 @@
 #include "render3d/r3d.h"
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
+#include "enhanced/interp.h"   /* ENH: smooth clips, projectiles between whole cells */
 
 #define LONG(o) ((s32)DSL(o))
 
@@ -178,7 +179,9 @@ void r3d_draw_world_objects(void)
             if (enh_shadow_on) enh_dot_end(i < 8 ? 0x29 : 0x0D);   /* ENH: S3.1 */
             continue;
         }
-        r3d_draw_model(DSW((u16)(0x3372 + 0x12 * DSW((u16)(Wp + 0x10)))), (s32)((u32)DSW(Wp) << 5), (s32)((u32)DSW((u16)(Wp + 2)) << 5), DSS((u16)(Wp + 4)),
+        u32 wx = (u32)DSW(Wp) << 5, wy = (u32)DSW((u16)(Wp + 2)) << 5;
+        enh_interp_proj_world(i, &wx, &wy);   /* ENH: in a display pass, between whole cells */
+        r3d_draw_model(DSW((u16)(0x3372 + 0x12 * DSW((u16)(Wp + 0x10)))), (s32)wx, (s32)wy, DSS((u16)(Wp + 4)),
                        DSS((u16)(Wp + 8)), DSS((u16)(Wp + 0xA)), (s16)(DSW((u16)(Wp + 0xC)) + 0x2000), (s16)(3 - lib_sign(hi)));
     }
     /* (F) falling wreck (DE92 may be stale: quirk) */
