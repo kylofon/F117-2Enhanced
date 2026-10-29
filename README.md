@@ -14,15 +14,17 @@ Status and plan: [PLAN.md](PLAN.md) (as a page: `python tools/plan_site.py`, the
 * **Wider view**: on a wide window the first cockpit view and the outside views show more of the world beside the
   4:3 picture; the side, rear and second cockpit views are fitted to the window height.
 * **Smooth distance shading** and **True night**: options, off by default.
+* **Smooth frame rate**: drawn at the monitor's refresh rate (`--fps vsync|60|30|off`); the camera, objects,
+  HUD and cockpit MFDs move smoothly between the game's steps.
 * **Launcher** with an Enhanced box, and `--classic`: the original picture and behaviour, as the faithful port.
 
-Frame rate (in progress): display decoupled from the sim (`--fps vsync|60|30|off`), objects, HUD and map interpolated. See [CHANGELOG.md](CHANGELOG.md).
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## How to play
 
 1. **You need the original game**: your own copy of the *F-117A Nighthawk Stealth Fighter 2.0* files (`F117.COM`,
    `SETUP.EXE`, `START.EXE`, `VGAME.EXE` and the rest). The launcher tells you which file is missing.
-2. **Unzip** `F117-Enhanced-v0.1.0-win64.zip` into a folder of your choice.
+2. **Unzip** `F117-Enhanced-v0.2.0-win64.zip` into a folder of your choice.
 3. **Start `f117-enhanced-launcher.exe`** and point **Folder** at your game files (or copy them into the `Game`
    folder beside it). The folder must be writable: the game saves your pilot roster there.
 4. Set the Enhanced options if you like and press **Play**. In SETUP answer **N** for the joystick and **2** for AdLib.
