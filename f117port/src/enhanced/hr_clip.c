@@ -12,6 +12,7 @@
 #include <limits.h>
 #include <string.h>
 
+#include "enhanced/enhanced.h"
 #include "render3d/r3d.h"
 
 typedef struct { s32 x, y; bool behind; } HrVtx;
@@ -63,6 +64,16 @@ static s64 proj_div_hr(s64 n1, s64 nN, s16 d)
     return (s64)N * (s16)f1 * 256;
 }
 
+/* Fine terrain (--fine-terrain): the terrain levels 2..4 round the camera height to their coarse unit (and clamp it to 2), so at low altitude the coast and the tile
+ * edges sit in the wrong place and jump as the aircraft climbs. enh_terr_dz is the missing part (Q8 level units, camera height used minus the exact one); the hr
+ * vertices of such an object are moved by it along the vertical column of the camera matrix (the faithful DGROUP vertices stay as they are). */
+static void terr_corr(s32 c[3])
+{
+    c[0] = c[1] = c[2] = 0;
+    if (!enh_terr_dz) return;
+    for (int k = 0; k < 3; k++) c[k] = (s32)(((s64)enh_terr_dz * DSS((u16)(0x7AF8 + 6 + 2 * k))) >> 8);
+}
+
 void hr_project(u16 di, u16 bx)
 {
     u16 k = (u16)((u16)(bx - 0xD688) / 8);
@@ -89,16 +100,19 @@ void hr_project(u16 di, u16 bx)
         v->x = out[0]; v->y = out[1];
         return;
     }
-    s16 zh = DSS((u16)(di + 0xA));
+    s32 cr[3];
+    terr_corr(cr);                                           /* ENH: fine terrain */
+    const s32 z32 = DSSL((u16)(di + 8)) + cr[2];
+    s16 zh = (s16)((u32)z32 >> 16);
     if (zh >= 0x100) {
-        s32 a = DSSL(di), b = DSSL((u16)(di + 4));
+        s32 a = DSSL(di) + cr[0], b = DSSL((u16)(di + 4)) + cr[1];
         v->x = (s32)proj_div_hr(a >> 8, ((s64)a * N) >> 8, zh);
         v->y = (s32)proj_div_hr(b >> 8, ((s64)b * N) >> 8, zh);
         return;
     }
     if (zh >= 1) {
-        s16 d = (s16)(u16)(DSW((u16)(di + 9)) >> 1);
-        s32 a = DSSL(di), b = DSSL((u16)(di + 4));
+        s16 d = (s16)(u16)((u16)((u32)z32 >> 8) >> 1);
+        s32 a = DSSL(di) + cr[0], b = DSSL((u16)(di + 4)) + cr[1];
         v->x = (s32)proj_div_hr(a >> 1, ((s64)a * N) >> 1, d);
         v->y = (s32)proj_div_hr(b >> 1, ((s64)b * N) >> 1, d);
         return;
@@ -299,6 +313,21 @@ void hr_clip_edge(HrEdge *e)
 
 /* ---------------------------------------------------------------- 11EB:0B3F make_edge */
 
+/* 11EB:0990 r3d_near_bisect on the corrected camera-space vertices (fine terrain): the near-plane point of the edge from the front vertex p0o to the one behind, p1o */
+static void near_bisect_fine(u16 p0o, u16 p1o, const s32 cr[3], s32 *ox, s32 *oy)
+{
+    s32 p0[3], p1[3], m[3];
+    for (int c = 0; c < 3; c++) { p0[c] = DSSL((u16)(p0o + 4 * c)) + cr[c]; p1[c] = DSSL((u16)(p1o + 4 * c)) + cr[c]; }
+    for (;;) {
+        for (int c = 0; c < 3; c++) m[c] = (s32)((u32)p0[c] + (u32)p1[c] + 1u) >> 1;
+        *ox = m[0]; *oy = m[1];
+        u16 h = (u16)((u32)m[2] >> 16);
+        if (h <= 1) return;
+        if ((s16)(h - 1) < 0) memcpy(p1, m, sizeof m);
+        else memcpy(p0, m, sizeof m);
+    }
+}
+
 void hr_make_edge(u16 rec, u16 v0x8, u16 v1x8)
 {
     HrEdge *e = edge_of(rec);
@@ -314,8 +343,16 @@ void hr_make_edge(u16 rec, u16 v0x8, u16 v1x8)
     if (p0->behind && p1->behind) { e->flags = 0x8080; return; }
     if (p1->behind) { e->x0 = p0->x + cx; e->y0 = p0->y + cy; }
     else { e->x1 = p1->x + cx; e->y1 = p1->y + cy; }
-    s32 nx = (s32)((((s64)DSSL(0x7D42) * N) >> 8) * 2 + cx);   /* r3d_near_bisect has just left the near-plane point in 7D42 / 7D46 */
-    s32 ny = (s32)((((s64)DSSL(0x7D46) * N) >> 8) * 2 + cy);
+    s32 b0 = DSSL(0x7D42), b1 = DSSL(0x7D46);                  /* r3d_near_bisect has just left the near-plane point in 7D42 / 7D46 */
+    if (enh_terr_dz) {                                         /* ENH: fine terrain, the point of the corrected vertices */
+        s32 cr[3];
+        terr_corr(cr);
+        const u16 V0 = (u16)(0xC688 + 2 * v0x8), V1 = (u16)(0xC688 + 2 * v1x8);
+        if (p1->behind) near_bisect_fine(V0, V1, cr, &b0, &b1);
+        else near_bisect_fine(V1, V0, cr, &b0, &b1);
+    }
+    s32 nx = (s32)((((s64)b0 * N) >> 8) * 2 + cx);
+    s32 ny = (s32)((((s64)b1 * N) >> 8) * 2 + cy);
     if (p1->behind) { e->x1 = nx; e->y1 = ny; } else { e->x0 = nx; e->y0 = ny; }
     e->nx = nx; e->ny = ny;
     hr_clip_edge(e);

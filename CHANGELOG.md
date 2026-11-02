@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Fine terrain** (`--fine-terrain`, default on). Near the ground the coast and the land / sea edges of the distant terrain were drawn too low and moved in steps as the aircraft climbed (at the Libya start the hangars on the right stood in the water). The terrain now uses the exact height of the camera. Also in the original game. `--no-fine-terrain` or `--classic` brings the original drawing back.
+
 ## 0.2.0 (2026-10-29)
 
 Smooth frames. The game still runs its simulation at the original rate, about 10 steps a second at the

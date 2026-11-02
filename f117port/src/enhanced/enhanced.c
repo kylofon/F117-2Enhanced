@@ -6,7 +6,9 @@
 #include <string.h>
 
 /* S3.4: the wider view is on by default (S2.1 note: "the default turns on with S3.4"); S4.1: --fps vsync by default */
-EnhOptions enh = { .canvas = true, .wide = true, .fps = -1 };
+EnhOptions enh = { .canvas = true, .wide = true, .fine_terrain = true, .fps = -1 };
+
+int enh_terr_dz;
 
 /* F117_CLASSIC=1 in the environment acts as --classic: the faithful ctests set it, because their Python drivers start the program with
  * their own command lines. */
@@ -20,6 +22,7 @@ static bool env_classic(void)
 bool enh_canvas_on(void) { return !enh.classic && enh.canvas && !env_classic(); }
 bool enh_smooth_on(void) { return enh.smooth_shading && enh_canvas_on(); }
 bool enh_true_night_on(void) { return enh.true_night && enh_canvas_on(); }
+bool enh_fine_terrain_on(void) { return enh.fine_terrain && !enh.classic && !env_classic(); }
 bool enh_fps_on(void) { return (enh.fps != 0 || enh.fps_test > 0) && enh_canvas_on(); }
 bool enh_sandbox_on(void) { return !enh.classic && enh.sandbox_test > 0 && !env_classic(); }
 
@@ -28,7 +31,7 @@ int enh_parse_arg(int argc, char **argv, int i)
     if (!strcmp(argv[i], "--classic")) {              /* every enhancement off, whatever else is on the command line */
         enh.classic = true; enh.canvas = false; enh.wide = false; enh.render_scale = 0; enh.dither_fine = false; enh.hr_check = false; enh.hr_dump[0] = 0;
         enh.sandbox_test = 0; enh.wide_test_w = enh.wide_test_h = 0; enh.smooth_shading = false; enh.true_night = false;
-        enh.fps = 0; enh.fps_test = 0;
+        enh.fps = 0; enh.fps_test = 0; enh.fine_terrain = false;
         return 1;
     }
     if (!strcmp(argv[i], "--render-scale") && i + 1 < argc) {
@@ -47,6 +50,8 @@ int enh_parse_arg(int argc, char **argv, int i)
     if (!strcmp(argv[i], "--no-smooth-shading")) { enh.smooth_shading = false; return 1; }
     if (!strcmp(argv[i], "--true-night")) { if (!enh.classic) enh.true_night = true; return 1; }        /* S3.6 */
     if (!strcmp(argv[i], "--no-true-night")) { enh.true_night = false; return 1; }
+    if (!strcmp(argv[i], "--fine-terrain")) { if (!enh.classic) enh.fine_terrain = true; return 1; }
+    if (!strcmp(argv[i], "--no-fine-terrain")) { enh.fine_terrain = false; return 1; }
     if (!strcmp(argv[i], "--fps") && i + 1 < argc) {               /* S4.1 */
         const char *v = argv[i + 1];
         int f = !strcmp(v, "vsync") ? -1 : !strcmp(v, "off") ? 0 : !strcmp(v, "60") ? 60 : !strcmp(v, "30") ? 30 : -2;

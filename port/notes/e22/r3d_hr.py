@@ -61,7 +61,7 @@ def main():
             os.remove(out)
         env = dict(os.environ)
         env.pop('F117_CLASSIC', None)
-        env['F117_ENH_ARGS'] = '--hr-check --render-scale %d' % n
+        env['F117_ENH_ARGS'] = '--no-fine-terrain --hr-check --render-scale %d' % n      # the fine terrain moves the hr terrain off the 1x page
         r = subprocess.run([sys.executable, GOLDEN, exe, game, work], env=env, capture_output=True, text=True, timeout=1800)
         if r.returncode == 77:
             print('r3d-hr: no game files (skipped)')

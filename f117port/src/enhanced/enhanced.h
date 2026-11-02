@@ -21,6 +21,8 @@ typedef struct {
                           * gradient in the compositor (DESIGN 2.11); ignored with --classic */
     bool true_night;     /* --true-night / --no-true-night (S3.6, default off): in night missions the 3D world (sky, ground, objects) much darker by distance, lights kept
                           * (DESIGN 2.12); ignored with --classic */
+    bool fine_terrain;   /* --fine-terrain / --no-fine-terrain (default on): the terrain levels use the camera height exactly, not rounded to each level's coarse unit (and
+                          * clamped to 2), so the coast and tile edges keep their place at low altitude instead of jumping as the aircraft climbs; ignored with --classic */
     int  fps;            /* --fps vsync|60|30|off (S4.1, default vsync = -1; 0 = off, the S3.4 path: one picture per sim step): display passes per monitor refresh
                           * in the frame_floor wait, the own aircraft and the camera interpolated between the last two sim steps (DESIGN 4.8); off with --classic */
     int  fps_test;       /* --fps-test K (S4.1 test aid): K display passes per VGAME frame at alpha 1/K .. K/K, run at once (no clock), instead of the refresh timing */
@@ -41,6 +43,10 @@ bool enh_sandbox_on(void);
 bool enh_smooth_on(void);
 /* S3.6: true night wanted (--true-night, the canvas on, not --classic / F117_CLASSIC). */
 bool enh_true_night_on(void);
+/* Fine terrain wanted (not --classic / F117_CLASSIC). */
+bool enh_fine_terrain_on(void);
+/* The camera height correction of the terrain pass in progress, Q8 level units (0 = none): r3d_draw_object adds it to the object's vertical offset. */
+extern int enh_terr_dz;
 /* S4.1: display passes per refresh wanted (--fps not off or --fps-test, the canvas on, not --classic / F117_CLASSIC). */
 bool enh_fps_on(void);
 /* Options from the environment variable F117_ENH_ARGS (for test drivers that build their own command line); once. */

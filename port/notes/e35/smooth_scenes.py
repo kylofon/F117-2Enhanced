@@ -34,7 +34,7 @@ def golden(exe, game, work, gwork, args):
             shutil.copyfile(src, os.path.join(work, fn))
     env = dict(os.environ)
     env.pop('F117_CLASSIC', None)
-    env['F117_ENH_ARGS'] = args
+    env['F117_ENH_ARGS'] = '--no-fine-terrain ' + args      # the fine terrain moves the hr terrain off the 1x page
     env['F117_HRD_RGB'] = '1'
     return subprocess.run([sys.executable, GOLDEN, exe, game, work], env=env, capture_output=True, text=True, timeout=1800)
 
@@ -42,7 +42,7 @@ def golden(exe, game, work, gwork, args):
 def run_port(exe, game, work, args):
     env = dict(os.environ)
     env.pop('F117_CLASSIC', None)
-    env['F117_ENH_ARGS'] = args
+    env['F117_ENH_ARGS'] = '--no-fine-terrain ' + args      # the fine terrain moves the hr terrain off the 1x page
     env['F117_HRD_RGB'] = '1'
     return subprocess.run([exe, '--render-test', work, '--game-dir', game], env=env, capture_output=True, text=True, timeout=1800)
 
