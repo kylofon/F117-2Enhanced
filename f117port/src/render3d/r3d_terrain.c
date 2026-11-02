@@ -60,11 +60,14 @@ void r3d_draw_terrain(s16 a1, s16 pitch, s32 x, s32 y, s32 z)
         u = terr_to_level(L, (u32)z);
         if ((u >> 16) != 0 || (u16)u >= 0x7FFF) continue;
         DSW(0x94DA) = (u16)u < 2 ? 2 : (u16)u;
-        enh_terr_dz = 0;
-        if (z >= 0 && enh_fine_terrain_on()) {                            /* ENH: the exact camera height in level units (Q8), not the rounded one clamped to 2 */
-            s64 zq = (s64)z << (L == 4 ? 2 : L == 3 ? 4 : L == 2 ? 6 : 8);
+        enh_terr_d[0] = enh_terr_d[1] = enh_terr_d[2] = 0;
+        if (x >= 0 && y >= 0 && z >= 0 && enh_fine_terrain_on()) {        /* ENH: the exact camera position in level units (Q8), not the rounded one (the height clamped to 2) */
+            const int sh = L == 4 ? 2 : L == 3 ? 4 : L == 2 ? 6 : 8;
+            s64 zq = (s64)z << sh;
             if (zq < 32) zq = 32;
-            enh_terr_dz = (int)(((s64)DSW(0x94DA) << 8) - zq);
+            enh_terr_d[0] = (int)(((s64)terr_to_level(L, (u32)x) << 8) - ((s64)x << sh));
+            enh_terr_d[1] = (int)(((s64)DSW(0x94DA) << 8) - zq);
+            enh_terr_d[2] = -(int)(((s64)terr_to_level(L, (u32)y) << 8) - ((s64)y << sh));
         }
         for (int i = 0;; i++) {
             bool pathA = L == 4 && DSS(0x98DE) >= 2;
@@ -124,7 +127,7 @@ void r3d_draw_terrain(s16 a1, s16 pitch, s32 x, s32 y, s32 z)
             }
         }
     }
-    enh_terr_dz = 0;                                                      /* ENH: fine terrain */
+    enh_terr_d[0] = enh_terr_d[1] = enh_terr_d[2] = 0;                    /* ENH: fine terrain */
 }
 
 /* ------------------------------------------------------------------------------------------------ the map MFD */

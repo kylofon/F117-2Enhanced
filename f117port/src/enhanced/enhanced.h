@@ -45,8 +45,9 @@ bool enh_smooth_on(void);
 bool enh_true_night_on(void);
 /* Fine terrain wanted (not --classic / F117_CLASSIC). */
 bool enh_fine_terrain_on(void);
-/* The camera height correction of the terrain pass in progress, Q8 level units (0 = none): r3d_draw_object adds it to the object's vertical offset. */
-extern int enh_terr_dz;
+/* The camera position correction of the terrain level in progress, Q8 level units, in the argument order of r3d_draw_object (x, height, -y); all 0 = none: the camera position
+ * the level used (rounded to its unit, the height clamped) minus the exact one. The hr path moves the vertices of the level's objects by it. */
+extern int enh_terr_d[3];
 /* S4.1: display passes per refresh wanted (--fps not off or --fps-test, the canvas on, not --classic / F117_CLASSIC). */
 bool enh_fps_on(void);
 /* Options from the environment variable F117_ENH_ARGS (for test drivers that build their own command line); once. */

@@ -64,14 +64,17 @@ static s64 proj_div_hr(s64 n1, s64 nN, s16 d)
     return (s64)N * (s16)f1 * 256;
 }
 
-/* Fine terrain (--fine-terrain): the terrain levels 2..4 round the camera height to their coarse unit (and clamp it to 2), so at low altitude the coast and the tile
- * edges sit in the wrong place and jump as the aircraft climbs. enh_terr_dz is the missing part (Q8 level units, camera height used minus the exact one); the hr
- * vertices of such an object are moved by it along the vertical column of the camera matrix (the faithful DGROUP vertices stay as they are). */
+/* Fine terrain (--fine-terrain): the terrain levels 2..4 round the camera position to their coarse unit (and clamp the height to 2), so at low altitude the coast and the
+ * tile edges sit in the wrong place and jump as the aircraft climbs. enh_terr_d is the missing part (Q8 level units, in the argument order x, height, -y); the hr
+ * vertices of such an object are moved by it through the camera matrix (the faithful DGROUP vertices stay as they are). */
+static bool terr_fix(void) { return enh_terr_d[0] || enh_terr_d[1] || enh_terr_d[2]; }
+
 static void terr_corr(s32 c[3])
 {
     c[0] = c[1] = c[2] = 0;
-    if (!enh_terr_dz) return;
-    for (int k = 0; k < 3; k++) c[k] = (s32)(((s64)enh_terr_dz * DSS((u16)(0x7AF8 + 6 + 2 * k))) >> 8);
+    if (!terr_fix()) return;
+    for (int k = 0; k < 3; k++)
+        c[k] = (s32)(((s64)enh_terr_d[0] * DSS((u16)(0x7AF8 + 2 * k)) + (s64)enh_terr_d[1] * DSS((u16)(0x7AF8 + 6 + 2 * k)) + (s64)enh_terr_d[2] * DSS((u16)(0x7AF8 + 12 + 2 * k))) >> 8);
 }
 
 void hr_project(u16 di, u16 bx)
@@ -344,7 +347,7 @@ void hr_make_edge(u16 rec, u16 v0x8, u16 v1x8)
     if (p1->behind) { e->x0 = p0->x + cx; e->y0 = p0->y + cy; }
     else { e->x1 = p1->x + cx; e->y1 = p1->y + cy; }
     s32 b0 = DSSL(0x7D42), b1 = DSSL(0x7D46);                  /* r3d_near_bisect has just left the near-plane point in 7D42 / 7D46 */
-    if (enh_terr_dz) {                                         /* ENH: fine terrain, the point of the corrected vertices */
+    if (terr_fix()) {                                          /* ENH: fine terrain, the point of the corrected vertices */
         s32 cr[3];
         terr_corr(cr);
         const u16 V0 = (u16)(0xC688 + 2 * v0x8), V1 = (u16)(0xC688 + 2 * v1x8);

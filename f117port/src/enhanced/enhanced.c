@@ -8,7 +8,7 @@
 /* S3.4: the wider view is on by default (S2.1 note: "the default turns on with S3.4"); S4.1: --fps vsync by default */
 EnhOptions enh = { .canvas = true, .wide = true, .fine_terrain = true, .fps = -1 };
 
-int enh_terr_dz;
+int enh_terr_d[3];
 
 /* F117_CLASSIC=1 in the environment acts as --classic: the faithful ctests set it, because their Python drivers start the program with
  * their own command lines. */
