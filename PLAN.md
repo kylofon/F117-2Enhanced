@@ -35,6 +35,7 @@ remove it when it is done.
 - **Release:** v0.1.0 released 2026-10-26; v0.2.0 (smooth frames) released 2026-10-29 (S6.3, tag v0.2.0).
 - **Phase 4:** S4.1 (decouple sim and display, `--fps`) built, U1 pending; S4.3 (one render per refresh, budget, 30 Hz fallback) built, U1 pending.
 - **Phase 4 (cont.):** S4.2 (objects and HUD interpolated) built, U1 pending. S4.6 (map MFD smooth at display rate and scrolling continuously, user request) built, U1 pending.
+- **Phase 7 (Mac art, option):** planned 2026-11-03; S7.1 → S7.2 (side / rear views) first, S7.3 → S7.4 (front cockpit) after.
 - **Next:** S4.4 (input and latency); S4.5 / S5.1 launcher work is separate. Your tasks: **User to-do** above (U1 of S4.1 and S4.3 together, U1 of S5.1).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
   (symptom, file, what was tried). Never carry an old transcript over.
@@ -202,6 +203,27 @@ Notes:
   S4.1 need it). S4.1 shrinks from L to M; S2.3 gains the reference-rasteriser test (Sonnet, M); S3.1 moves to Sonnet
   (the back end is S2.2's); S3.2 becomes S (the viewport hook already covers the TV and map passes).
 
+### Phase 7 — Mac art (option, user request 2026-11-03)
+| Id | Task | Model | Size | Status |
+|---|---|---|---|---|
+| S7.1 | Mac asset tool and loader: `tools/mac_art.py` (from `work/mac/tools`: StuffIt method 13 with CRC check, resource fork, `CvPc` → uncompressed indexed file + palette, the cyan window/display rects as JSON) run on the user's own Mac archive or `F117a Art` fork; output to a user folder (never `Game/`, never committed); engine option `--mac-art DIR` loads it (missing folder or picture → the PC art, a log line); `--classic` ignores it | S | S | |
+| S7.2 | Left, right and rear views with the Mac pictures (`LeftCock`, `RightCock`, `RearCock`, 640x480): a full-colour art layer in the compositor (cyan 0,255,255 = see-through) in place of 256LEFT/RIGHT/REAR, scaled to fill the window height (Decision 2026-10-21 b); 3D view unchanged behind it; night: the art darkened like the PC cockpit palette at night (match the PC look) | S | M | |
+| S7.3 | Front cockpit design (`DESIGN.md` section 7): map every dynamic element of the PC panel (map / TV / scope MFDs, threat display, lights, gauges, readouts, ordnance, the HUD and the 3D view centre) onto `CockpitOff` (640x480: canopy windows, HUD glass (237,9)-(402,175), displays 146x144 at (247,271), 100x99 at (429,300), 54x54 at (135,325)); MFD aspect (fill the larger window: stretch, letterbox or show more area); which PC elements have no place on the Mac panel; the first and second cockpit views; questions for the user | O | M | |
+| S7.4 | Front cockpit with the Mac picture, as designed in S7.3 (`--mac-art`); user checks each element's position (U1) | S | L | |
+| S7.5 | Launcher: "Mac art folder" (browse; empty = off) in the Enhanced box, greyed out by Classic; README section (how to get the folder with `tools/mac_art.py`) | H | S | |
+
+Notes:
+- 2026-11-03 survey (`work/mac`, not committed): the Mac 2.3.2 archives (`f117a_stealth_fighter.sit` and others in the
+  user's Downloads) unpack with `work/mac/tools/unsit.py` (classic SIT!, method 13; all large forks CRC-OK; tiny forks
+  with static Huffman tables and the SIT5 2.3.1 update not supported). `F117a Art` = 77 `CvPc` resources: w, h (BE
+  words), LZW min code size, colours-1, RGB palette (≤128 colours), then GIF LZW sub-blocks; PNGs in `work/mac/png`.
+  PC key colour 0 regions for comparison: 256PIT window rows 0..90, MFDs (74,110)-(149,169) and (169,110)-(245,170);
+  256LEFT/RIGHT window rows 0..160; 256REAR two windows.
+- Other Mac assets, not planned (candidates for later rows): 640-wide HUD fonts and tapes (`AlphaNum640`,
+  `HUDAltitude`, `HUDHeading`, `HUDAirSpeed`, `HUDSprites`, `Tracers`), shell screens at 512x384 and mission maps at
+  512x323 (layouts differ from the PC 320x200 ones), 6 FLC movies at 512x384 (`F117a Movies`), 33 sampled sounds
+  (speech callouts, music, engine; `F117a Sound`, 7.4–11 kHz 8-bit).
+
 ## User tasks
 
 ### U1 — Visual checks (when an agent asks)
@@ -231,6 +253,9 @@ Several bugs in one message; one session then fixes them in a batch.
 
 ## Decisions
 (Settled answers from U3 go here, dated.)
+- 2026-11-03, user request: the Mac release's cockpit and side-view pictures (640x480, original MicroProse art) as an
+  **optional** enhancement (Phase 7), like the Amiga graphics in the user's Test Drive ports. Off by default; the user
+  supplies their own Mac files; nothing from them is committed or shipped; `--classic` and no `--mac-art` = the PC art.
 - 2026-10-21 b, the non-extended views fill the height (refines 2026-10-21 and Q1, user feedback from play): the left, right and rear views (and any other non-extended view with cabin art) are scaled proportionally so the whole picture covers the window **from top to bottom**, at a non-integer scale if needed (window height / 200 with the 4:3 or 1:1 aspect); the sides may stay black, no bars at the top or bottom. The **second cockpit view** (`c`, view 0 with `[294B]` = 1) is scaled the same way, and the side areas show the **extended world, left and right only** (not above: no art above the frame). Menus stay pillarboxed.
 - 2026-10-21, wider view per view (refines 2026-10-19): the extended viewing area applies ONLY to the **first cockpit
   view** (front cockpit, instrument panel at the bottom) and **all external views** (full-screen 3D, outside, chase, own
