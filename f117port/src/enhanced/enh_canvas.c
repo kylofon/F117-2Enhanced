@@ -30,7 +30,7 @@ typedef struct {
     u8 under3d;   /* vector write: the pixel under it was a (fresh) 3D pixel */
 } Shadow;
 
-EnhCanvas enh_cv = { 320, 200, 1, 0, 0, 0, 0, 320, 200 };
+EnhCanvas enh_cv = { 320, 200, 1, 0, 0, 0, 0, 320, 200, 0 };
 bool enh_shadow_on;
 int enh_route;
 int enh_stamp_hold;   /* S3.1: > 0 = the 1x writes of a 3D pass are recorded but not stamped (an hr emitter draws the object itself) */
@@ -56,6 +56,19 @@ void enh_canvas_geometry(EnhCanvas *c, EnhView v, int win_w, int win_h, bool asp
     int lw = win_w < 1 ? 1 : win_w;
     int lh = aspect43 ? win_h * 5 / 6 : win_h;                 /* floor(Ho / a), a = 1.2 */
     if (lh < 1) lh = 1;
+    c->mac = 0;
+    if (wide && v == ENH_VIEW_FRONT && enh_mac_front()) {      /* S7.4 (DESIGN 7.2): the canvas is the Mac picture at 1.2N across, N (4:3) or 1.2N down; the frame at
+                                                                * Mac (319.5 - 159.5 / 1.2, 66); the host scales the canvas to the window height */
+        const int mh = aspect43 ? 480 : 576;
+        int n = fixed_n > 0 ? fixed_n : (lh + mh - 1) / mh;
+        if (n < 1) n = 1;
+        if (n > MAX_SIDE / 768) n = MAX_SIDE / 768;
+        c->lw = 768 * n; c->lh = mh * n; c->n = n;
+        c->fx = 224 * n; c->fy = aspect43 ? 66 * n : 79 * n;
+        c->vx = c->vy = 0; c->vw = c->lw; c->vh = c->lh;
+        c->mac = aspect43 ? 1 : 2;
+        return;
+    }
     int fit = lw / 320 < lh / 200 ? lw / 320 : lh / 200;
     if (fit < 1) fit = 1;
     if (!wide) {                                               /* the canvas is the frame; the host letterboxes it */
@@ -454,7 +467,7 @@ void enh_flip(unsigned bytes)
  * (frame px: the 3D window of its main pass) and everywhere outside the frame, its vector layer outside the frame; cls (test aid): per canvas pixel what it shows */
 typedef struct { const Shadow *sh; const u16 *l3, *lv; const u16 *l3h, *lvh; int hx0, hy0, hx1, hy1; u8 *cls; bool blend;
                  const u8 *n3, *n3h; u8 *ndo;
-                 const MacPic *mac; const u8 *mac_pg; int mac_h; u32 mac_f[3]; } ComposeSrc;   /* S7.2: the Mac picture over a side / rear view (mac_rows) */   /* ndo (test aid): per canvas pixel the night value the 3D pixel had (0 = none / not 3D) */   /* blend: S3.5, pal is a real palette; n3 / n3h: S3.6, the night planes of l3 / l3h (NULL = none) */
+                 const MacPic *mac; const u8 *mac_pg; int mac_h; u32 mac_f[3]; bool mac_front; } ComposeSrc;   /* S7.4: mac_front = the Mac front cockpit (mac_front_rows) */   /* S7.2: the Mac picture over a side / rear view (mac_rows) */   /* ndo (test aid): per canvas pixel the night value the 3D pixel had (0 = none / not 3D) */   /* blend: S3.5, pal is a real palette; n3 / n3h: S3.6, the night planes of l3 / l3h (NULL = none) */
 
 /* S3.5 (DESIGN 2.11): a 3D layer pixel; with a blend code (bits 10..15, --smooth-shading only) the mix of its colour and the neighbour entry of the same 16-entry ramp */
 static inline u32 l3_rgb(const u32 *pal, u16 l, bool blend)
@@ -617,15 +630,17 @@ static inline u32 dac8(u8 v) { v &= 63; return (u32)(v << 2 | v >> 4); }   /* a 
 
 static void mac_setup(ComposeSrc *cs, const u32 *pal)
 {
-    if (view != ENH_VIEW_FIT || menu_on || !enh_mac_on()) return;
+    if (menu_on || !enh_mac_on()) return;
     const int mode = DSW(0x2E48);
-    const MacPic *m = enh_mac_view_pic(mode);
+    const bool front = view == ENH_VIEW_FRONT && enh_cv.mac && mode == 0 && layer_px;   /* S7.4: the first cockpit view with the Mac placement */
+    if (view != ENH_VIEW_FIT && !front) return;
+    const MacPic *m = front ? enh_mac_pic(MAC_FRONT) : enh_mac_view_pic(mode);
     const u16 seg = video_page_seg(2);
     if (!m || !seg) return;
     const u8 *pg = seg_ptr(seg);
     static u32 hist[256];
     memset(hist, 0, sizeof hist);
-    for (int i = 0; i < PAGE_PIXELS; i++) hist[pg[i]]++;
+    for (int i = front ? 91 * 320 : 0; i < PAGE_PIXELS; i++) hist[pg[i]]++;   /* S7.4: the front's night factor from 256PIT's panel rows */
     hist[0] = 0;
     unsigned long long cur[3] = { 0 }, ref[3] = { 0 };
     for (int k = 0; k < 3; k++) {
@@ -647,7 +662,137 @@ static void mac_setup(ComposeSrc *cs, const u32 *pal)
     cs->mac = m;
     cs->mac_pg = pg;
     cs->mac_h = mode == 0x41 ? 0x9D : 0xA1;                         /* sim_view.c: the 3D window's rows of the view */
+    cs->mac_front = front;
+    if (front) cs->mac_h = 91;                                       /* the 3D window's rows without the Alt-C strip ([2DFC]: rows 91..106 are the panel's edge, art) */
+}
 
+/* ---------------------------------------------------------------- S7.4: the Mac front cockpit (DESIGN 7.2) */
+
+enum { MF_NONE = 0, MF_GLASS = 254 };                                 /* per Mac pixel: 0, 1 + element index, or the HUD glass */
+typedef struct {
+    const MacPic *m;
+    u8 code[640 * 480];
+    u32 ink[64], bg[64];                                              /* per readout: the Mac field's brightest and most frequent colour */
+} MacFront;
+static MacFront *mf;
+static u8 mf_lit[64];                                                 /* per lamp element: lit now (mac_front_setup) */
+static u32 mf_thr[64];                                                /* per readout: the PC field's mid luminance (brighter = the digits' ink) */
+static u32 *mf_scratch;
+static size_t mf_scratch_px;
+
+static inline u32 lum(u32 c) { return ((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 6 + (c & 255); }
+
+static const MacFront *mac_front_tables(const MacPic *m)
+{
+    if (mf && mf->m == m) return mf;
+    if (m->w != 640 || m->h != 480) return NULL;
+    if (!mf && !(mf = calloc(1, sizeof *mf))) return NULL;
+    mf->m = m;
+    memset(mf->code, MF_NONE, sizeof mf->code);
+    for (int y = MAC_GLASS_Y0; y <= MAC_GLASS_Y1; y++) memset(mf->code + y * 640 + MAC_GLASS_X0, MF_GLASS, MAC_GLASS_X1 - MAC_GLASS_X0 + 1);
+    for (int e = 0; e < enh_mac_front_el_count && e < 64; e++) {
+        const MacEl *el = &enh_mac_front_els[e];
+        u32 cnt[256] = { 0 };
+        u8 best = 0, hi = 0;
+        for (int y = el->my0; y <= el->my1; y++)
+            for (int x = el->mx0; x <= el->mx1; x++) {
+                const u8 c = m->pix[y * 640 + x];
+                mf->code[y * 640 + x] = (u8)(1 + e);
+                if (++cnt[c] > cnt[best]) best = c;
+                if (!m->key[c] && lum(m->rgb[c]) > lum(m->rgb[hi])) hi = c;
+            }
+        mf->bg[e] = m->rgb[best]; mf->ink[e] = m->rgb[hi];
+    }
+    return mf;
+}
+
+/* single-threaded, before the rows: the lamps' state (the shown page against 256PIT as loaded) and the readouts' PC background */
+static void mac_front_setup(const u8 *idx, const u32 *pal)
+{
+    const u8 *pit = enh_mac_pit();
+    for (int e = 0; e < enh_mac_front_el_count && e < 64; e++) {
+        const MacEl *el = &enh_mac_front_els[e];
+        int diff = 0, all = 0;
+        u32 lo = ~0u, hi = 0;
+        for (int y = el->sy0; y <= el->sy1; y++)
+            for (int x = el->sx0; x <= el->sx1; x++) {
+                const u8 v = idx[y * 320 + x];
+                all++;
+                if (pit && v != pit[y * 320 + x]) diff++;
+                const u32 l = lum(pal[v]);
+                if (l < lo) lo = l;
+                if (l > hi) hi = l;
+            }
+        mf_lit[e] = el->kind == MAC_EL_LAMP && pit && diff * 4 >= all;
+        mf_thr[e] = hi - lo < 200 ? ~0u : (lo + hi) / 2;               /* no contrast: no digits */
+    }
+}
+
+static inline u32 mac_shade(u32 v, const u32 f[3])
+{
+    return ((((v >> 16) & 255) * f[0] + 128) >> 8) << 16 | ((((v >> 8) & 255) * f[1] + 128) >> 8) << 8 | (((v & 255) * f[2] + 128) >> 8);
+}
+static inline u32 mac_lit(u32 v)                                      /* a lit lamp: each channel x 2.2, clamped */
+{
+    u32 o = 0;
+    for (int sh = 0; sh <= 16; sh += 8) { u32 c = (((v >> sh) & 255) * 22 + 5) / 10; o |= (c > 255 ? 255 : c) << sh; }
+    return o;
+}
+
+/* the output rows: per canvas pixel the Mac picture's pixel and what shows there (DESIGN 7.2 "Compose") */
+static void mac_front_rows(const ComposeJob *job, const u32 *scratch, int ylo, int yhi)
+{
+    const ComposeSrc *cs = job->cs;
+    const MacPic *m = cs->mac;
+    const MacFront *t = mf;
+    const int lw = enh_cv.lw, lh = enh_cv.lh, n = enh_cv.n, fx = enh_cv.fx, fy = enh_cv.fy;
+    const int fx1 = fx + 320 * n, wy1 = fy + cs->mac_h * n;           /* the frame's 3D window: x fx..fx1 - 1, rows fy..wy1 - 1 */
+    for (int y = ylo; y < yhi; y++) {
+        const int v = enh_cv.mac == 1 ? y / n : (int)((long long)y * 5 / (6 * n));
+        u32 *o = job->out + (size_t)y * lw;
+        if (v >= 480) { memset(o, 0, (size_t)lw * sizeof(u32)); continue; }
+        const u32 *sc = scratch + (size_t)y * lw;
+        const bool in_rows = y >= fy && y < wy1, in_frame_rows = y >= fy && y < fy + 200 * n;
+        for (int x = 0; x < lw; x++) {
+            const int u = (int)((long long)x * 5 / (6 * n));
+            if (u >= 640) { o[x] = 0; continue; }
+            const u8 c = m->pix[v * 640 + u], code = t->code[v * 640 + u];
+            const bool key = m->key[c];
+            if (code == MF_NONE || code == MF_GLASS) {
+                if (!key) { o[x] = mac_shade(m->rgb[c], cs->mac_f); continue; }
+                const bool frame3d = in_rows && x >= fx && x < fx1;
+                if (code == MF_GLASS && frame3d) { o[x] = sc[x]; continue; }   /* the HUD glass over the frame's 3D window: world and HUD */
+                const size_t at = (size_t)y * lw + x;                  /* a canopy window, or the glass below the 3D window: the world alone */
+                if (cs->l3h && (cs->l3h[at] & 0x100)) {
+                    if (cs->lvh && (cs->lvh[at] & 0x100) && !(in_frame_rows && x >= fx && x < fx1)) { o[x] = job->pal[cs->lvh[at] & 255]; continue; }   /* tracers */
+                    o[x] = l3_rgb(job->pal, cs->l3h[at], cs->blend);
+                    if (cs->n3h) o[x] = l3_night(o[x], cs->n3h[at]);
+                } else o[x] = sc[x];
+                continue;
+            }
+            const int e = code - 1;
+            const MacEl *el = &enh_mac_front_els[e];
+            if (el->kind == MAC_EL_LAMP) { o[x] = mac_shade(mf_lit[e] ? mac_lit(m->rgb[c]) : m->rgb[c], cs->mac_f); continue; }
+            /* the place in the source rect: the canvas pixel's centre across the Mac rect, onto the frame rect */
+            const double mx = (x + 0.5) * 5.0 / (6 * n), my = enh_cv.mac == 1 ? (y + 0.5) / n : (y + 0.5) * 5.0 / (6 * n);
+            const double tx = (mx - el->mx0) / (el->mx1 + 1 - el->mx0), ty = (my - el->my0) / (el->my1 + 1 - el->my0);
+            const double sxf = el->sx0 + tx * (el->sx1 + 1 - el->sx0), syf = el->sy0 + ty * (el->sy1 + 1 - el->sy0);
+            if (el->kind == MAC_EL_DISPLAY) {
+                if (!key) { o[x] = mac_shade(m->rgb[c], cs->mac_f); continue; }
+                int sx = fx + (int)(sxf * n), sy = fy + (int)(syf * n);
+                sx = sx < 0 ? 0 : sx >= lw ? lw - 1 : sx; sy = sy < 0 ? 0 : sy >= lh ? lh - 1 : sy;
+                o[x] = scratch[(size_t)sy * lw + sx];
+                continue;
+            }
+            int px = (int)sxf, py = (int)syf;                         /* a readout: the PC digits' ink in the Mac field's ink colour, on its background */
+            px = px < el->sx0 ? el->sx0 : px > el->sx1 ? el->sx1 : px; py = py < el->sy0 ? el->sy0 : py > el->sy1 ? el->sy1 : py;
+            o[x] = mac_shade(lum(job->pal[job->idx[py * 320 + px]]) > mf_thr[e] ? t->ink[e] : t->bg[e], cs->mac_f);
+        }
+    }
+}
+
+typedef struct { ComposeJob job; const u32 *scratch; } MacFrontJob;
+static void mac_front_band(void *jp, int ylo, int yhi) { const MacFrontJob *j = jp; mac_front_rows(&j->job, j->scratch, ylo, yhi); }
 
 static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *pal, bool screen, const ComposeSrc *cs_in)
 {
@@ -660,8 +805,20 @@ static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *
         if (cs->cls) memset(cs->cls, CLS_BLACK, (size_t)lw * (size_t)lh);
         return;
     }
+    if (cs->mac_front && mac_front_tables(cs->mac)) {                /* S7.4: the frame composed into a scratch canvas, then the Mac picture with the remapped elements */
+        const size_t px = (size_t)lw * (size_t)lh;
+        if (mf_scratch_px < px) { free(mf_scratch); mf_scratch = malloc(px * sizeof(u32)); mf_scratch_px = mf_scratch ? px : 0; }
+        if (mf_scratch) {
+            ComposeJob sj = { mf_scratch, idx, sidx, pal, cs };
+            enh_par_for(lh, compose_rows, &sj);
+            mac_front_setup(idx, pal);
+            MacFrontJob fj = { { out, idx, sidx, pal, cs }, mf_scratch };
+            enh_par_for(lh, mac_front_band, &fj);
+            return;
+        }
+    }
     ComposeJob job = { out, idx, sidx, pal, cs };
-    enh_par_for(lh, cs->mac ? compose_rows_mac : compose_rows, &job);                              /* S4.3: bands of rows on the worker pool (the same pixels as one band) */
+    enh_par_for(lh, cs->mac && !cs->mac_front ? compose_rows_mac : compose_rows, &job);                              /* S4.3: bands of rows on the worker pool (the same pixels as one band) */
 }
 
 /* S3.4: the sources of the present path: the shown plane and layers, and the wide picture h when it belongs to this placement (S4.1: inside a display pass the

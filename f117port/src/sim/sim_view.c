@@ -4,6 +4,7 @@
 
 #include "enhanced/enh_canvas.h"   /* ENH: */
 #include "enhanced/interp.h"       /* ENH: smooth clips */
+#include "enhanced/macart.h"       /* ENH: S7.4 */
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
 #include "sim/simtest.h"
@@ -205,6 +206,7 @@ void view_frame(void)
         screen_off();
         if ((u8)mode == 0) {
             pic_show("256pit.pic", 2);
+            enh_mac_pit_loaded();                                       /* ENH: S7.4, the lamps' off state */
             gfx_restore_rect(0, 0x5B, 0x140, 0x6D);
             if (DSW(0xBA0E)) sprite_scaled(DSP(DSW(0x4012)), 0xA9, 0x6E, 0x4D, 0x3C, 0, DSW(0xBA0E));
             cockpit_refresh_panels();

@@ -929,6 +929,17 @@ cockpit at 512x384) (**Q7.5**). The external views have no cockpit art. View swi
 **Hooks:** the geometry (`enh_canvas_geometry`, FRONT with the Mac picture), the hole (`hr_pass.c`), the 256PIT copy (`sim_view.c`, `sim_main.c`),
 the second compose phase (`enh_canvas.c`). `--classic` / no `--mac-art`: none of them acts.
 
+### 7.4 As built (S7.4)
+* Built as 7.2 with its defaults (`enh_canvas_geometry`: `EnhCanvas.mac` 1 = 4:3, 2 = square pixels; `hr_pass.c`: the hole; `enh_canvas.c`:
+  `mac_front_tables` (per Mac pixel: glass, element or none), `mac_front_setup` (lamps, readout thresholds), `mac_front_rows`; `macart.c`: the element table
+  and the 256PIT copy). Needs the wide view: with `--no-wide` the first cockpit view keeps the PC picture.
+* The frame's 3D window for the glass rule is always rows 0..90: with Alt-C (`[2DFC]`, the 107-row window) rows 91..106 are the PC panel's edge strip (art
+  over the world), so the glass shows the wide picture's world there, not the strip.
+* Readouts: a PC pixel is the digits' ink when brighter than the middle of the field's darkest and brightest colour (the PC digit cells have their own
+  dark background); ink in the Mac field's brightest colour, the rest in its most frequent one (the Mac's printed "000" is covered).
+* Measured (headless, attack pose, 1280x960 window, canvas 1536 x 960 at N = 2): no cyan shown, no black in the windows once the wide picture exists (the first
+  frame after the view switch: 5 %); the side / rear views unchanged against S7.2 (0 differences by day).
+
 ### 7.3 Questions (defaults apply; also in PLAN.md U3)
 * Q7.1 HUD and world scale in the Mac front cockpit: default **the HUD fits the Mac HUD glass** (the world at 0.83 of the full-window scale: ~112 degrees
   across the picture); alternative the PC's scale (the HUD larger than the glass, clipped by its frame; ~64 degrees across, as the PC view).

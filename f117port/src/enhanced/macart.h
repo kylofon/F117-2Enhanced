@@ -23,3 +23,17 @@ const MacPic *enh_mac_pic(MacPicId id);
 const MacPic *enh_mac_view_pic(int view_mode);
 /* --mac-art-test (with --mac-art DIR): loads the pictures and checks them; 0 = pass, 77 = no --mac-art folder (skipped). */
 int enh_mac_selftest(void);
+
+/* S7.4 (DESIGN 7.2): the Mac front cockpit is used (--mac-art with CockpitOff, the wide view on). */
+bool enh_mac_front(void);
+/* ENH hook after pic_show("256pit.pic", 2): page 2 as loaded (the lamps' off state); NULL until then. */
+void enh_mac_pit_loaded(void);
+const u8 *enh_mac_pit(void);
+
+/* The front cockpit's remapped PC elements: frame rect (s, inclusive) -> Mac rect (m, inclusive). */
+typedef enum { MAC_EL_DISPLAY, MAC_EL_READOUT, MAC_EL_LAMP } MacElKind;
+typedef struct { u8 kind; s16 sx0, sy0, sx1, sy1, mx0, my0, mx1, my1; } MacEl;
+extern const MacEl enh_mac_front_els[];
+extern const int enh_mac_front_el_count;
+/* The Mac HUD glass and the canopy (other cyan) of CockpitOff */
+enum { MAC_GLASS_X0 = 237, MAC_GLASS_Y0 = 9, MAC_GLASS_X1 = 402, MAC_GLASS_Y1 = 175 };
