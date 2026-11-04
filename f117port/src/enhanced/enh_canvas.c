@@ -12,6 +12,7 @@
 #include "enhanced/sandbox.h"
 #include "enhanced/wide.h"
 #include "enhanced/par.h"
+#include "enhanced/macart.h"
 #include "mem.h"
 #include "render3d/r3d.h"
 #include "platform/vga.h"
@@ -452,7 +453,8 @@ void enh_flip(unsigned bytes)
 /* the shadow plane and the 3D / vector layers being composed; S3.4: l3h / lvh = the wide picture (held): its 3D layer inside the frame rectangle hx0..hx1, hy0..hy1
  * (frame px: the 3D window of its main pass) and everywhere outside the frame, its vector layer outside the frame; cls (test aid): per canvas pixel what it shows */
 typedef struct { const Shadow *sh; const u16 *l3, *lv; const u16 *l3h, *lvh; int hx0, hy0, hx1, hy1; u8 *cls; bool blend;
-                 const u8 *n3, *n3h; u8 *ndo; } ComposeSrc;   /* ndo (test aid): per canvas pixel the night value the 3D pixel had (0 = none / not 3D) */   /* blend: S3.5, pal is a real palette; n3 / n3h: S3.6, the night planes of l3 / l3h (NULL = none) */
+                 const u8 *n3, *n3h; u8 *ndo;
+                 const MacPic *mac; const u8 *mac_pg; int mac_h; u32 mac_f[3]; } ComposeSrc;   /* S7.2: the Mac picture over a side / rear view (mac_rows) */   /* ndo (test aid): per canvas pixel the night value the 3D pixel had (0 = none / not 3D) */   /* blend: S3.5, pal is a real palette; n3 / n3h: S3.6, the night planes of l3 / l3h (NULL = none) */
 
 /* S3.5 (DESIGN 2.11): a 3D layer pixel; with a blend code (bits 10..15, --smooth-shading only) the mix of its colour and the neighbour entry of the same 16-entry ramp */
 static inline u32 l3_rgb(const u32 *pal, u16 l, bool blend)
@@ -575,8 +577,83 @@ static void compose_rows(void *jp, int ylo, int yhi)
     }
 }
 
-static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *pal, bool screen, const ComposeSrc *cs)
+static void mac_rows(const ComposeJob *job, int ylo, int yhi);
+static void compose_rows_mac(void *jp, int ylo, int yhi) { compose_rows(jp, ylo, yhi); mac_rows(jp, ylo, yhi); }
+
+/* S7.2 (Phase 7, DESIGN 7.1): the Mac picture of the left, right or rear view over the composed frame, scaled to it (640x480 on 320x200: the same 4:3 picture).
+ * Its pixels show in its own colours times the night factor mac_f (the PC cabin art's darkening now); its see-through (cyan) pixels show the composition below,
+ * except where that is the PC cabin art (the shown page pixel equals the view's picture in page 2, inside the 3D window rows): there the world of the 3D layer. */
+static void mac_rows(const ComposeJob *job, int ylo, int yhi)
 {
+    const ComposeSrc *cs = job->cs;
+    const MacPic *m = cs->mac;
+    const int lw = enh_cv.lw, n = enh_cv.n, fx = enh_cv.fx, fy = enh_cv.fy;
+    const u16 *l3 = cs->l3h ? cs->l3h : cs->l3;
+    const u8 *n3 = cs->l3h ? cs->n3h : cs->n3;
+    for (int y = ylo < fy ? fy : ylo; y < yhi && y < fy + 200 * n; y++) {
+        const int py = (y - fy) / n, my = (int)((long long)(y - fy) * m->h / (200 * n));
+        const u8 *mrow = m->pix + (size_t)my * (size_t)m->w;
+        u32 *o = job->out + (size_t)y * lw;
+        for (int x = fx; x < fx + 320 * n; x++) {
+            const u8 c = mrow[(long long)(x - fx) * m->w / (320 * n)];
+            if (!m->key[c]) {
+                const u32 v = m->rgb[c];
+                o[x] = ((((v >> 16) & 255) * cs->mac_f[0] + 128) >> 8) << 16 | ((((v >> 8) & 255) * cs->mac_f[1] + 128) >> 8) << 8 | (((v & 255) * cs->mac_f[2] + 128) >> 8);
+                continue;
+            }
+            const int px = (x - fx) / n;
+            if (py >= cs->mac_h || job->idx[py * 320 + px] != cs->mac_pg[py * 320 + px]) continue;   /* not the PC cabin art: what the frame shows */
+            const u16 l = l3[(size_t)y * lw + x];
+            if (!(l & 0x100)) continue;
+            o[x] = l3_rgb(job->pal, l, cs->blend);
+            if (n3) o[x] = l3_night(o[x], n3[(size_t)y * lw + x]);
+        }
+    }
+}
+
+/* S7.2: the Mac picture for this composition (view FIT with the rear / left / right picture in page 2, --mac-art) and the night factor of the PC cabin art: per
+ * channel, the art's colours in the live DAC over the same colours in the brightest of the game's three flight palettes (DS:164A, 194A, 1C4A; 6-bit) */
+static inline u32 dac8(u8 v) { v &= 63; return (u32)(v << 2 | v >> 4); }   /* a 6-bit DAC value as the VGA shows it (platform/vga.c) */
+
+static void mac_setup(ComposeSrc *cs, const u32 *pal)
+{
+    if (view != ENH_VIEW_FIT || menu_on || !enh_mac_on()) return;
+    const int mode = DSW(0x2E48);
+    const MacPic *m = enh_mac_view_pic(mode);
+    const u16 seg = video_page_seg(2);
+    if (!m || !seg) return;
+    const u8 *pg = seg_ptr(seg);
+    static u32 hist[256];
+    memset(hist, 0, sizeof hist);
+    for (int i = 0; i < PAGE_PIXELS; i++) hist[pg[i]]++;
+    hist[0] = 0;
+    unsigned long long cur[3] = { 0 }, ref[3] = { 0 };
+    for (int k = 0; k < 3; k++) {
+        static const u16 base[3] = { 0x164A, 0x194A, 0x1C4A };
+        unsigned long long s[3] = { 0 };
+        for (int i = 1; i < 256; i++)
+            for (int ch = 0; ch < 3; ch++) s[ch] += (unsigned long long)hist[i] * dac8(DSB((u16)(base[k] + 3 * i + ch)));
+        if (s[0] + s[1] + s[2] > ref[0] + ref[1] + ref[2]) memcpy(ref, s, sizeof s);
+    }
+    for (int i = 1; i < 256; i++) {
+        cur[0] += (unsigned long long)hist[i] * ((pal[i] >> 16) & 255);
+        cur[1] += (unsigned long long)hist[i] * ((pal[i] >> 8) & 255);
+        cur[2] += (unsigned long long)hist[i] * (pal[i] & 255);
+    }
+    for (int ch = 0; ch < 3; ch++) {
+        unsigned long long f = ref[ch] ? (cur[ch] * 256 + ref[ch] / 2) / ref[ch] : 256;
+        cs->mac_f[ch] = (u32)(f > 256 ? 256 : f);
+    }
+    cs->mac = m;
+    cs->mac_pg = pg;
+    cs->mac_h = mode == 0x41 ? 0x9D : 0xA1;                         /* sim_view.c: the 3D window's rows of the view */
+
+
+static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *pal, bool screen, const ComposeSrc *cs_in)
+{
+    ComposeSrc mcs = *cs_in;                                          /* S7.2 */
+    const ComposeSrc *cs = &mcs;
+    if (screen) mac_setup(&mcs, pal);
     const int lw = enh_cv.lw, lh = enh_cv.lh;
     if (!screen) {
         memset(out, 0, (size_t)lw * (size_t)lh * sizeof(u32));
@@ -584,7 +661,7 @@ static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *
         return;
     }
     ComposeJob job = { out, idx, sidx, pal, cs };
-    enh_par_for(lh, compose_rows, &job);                              /* S4.3: bands of rows on the worker pool (the same pixels as one band) */
+    enh_par_for(lh, cs->mac ? compose_rows_mac : compose_rows, &job);                              /* S4.3: bands of rows on the worker pool (the same pixels as one band) */
 }
 
 /* S3.4: the sources of the present path: the shown plane and layers, and the wide picture h when it belongs to this placement (S4.1: inside a display pass the
@@ -694,7 +771,7 @@ void enh_compose_work(u32 *out, const u8 *page, const u32 *pal, bool blend)
 {
     static u16 ident[PAGE_PIXELS];
     if (ident[1] == 0) for (int i = 0; i < PAGE_PIXELS; i++) ident[i] = (u16)i;
-    const ComposeSrc cs = { sh_work, l3d_work, lvec_work, NULL, NULL, 0, 0, 0, 0, NULL, blend, blend ? l3n_work : NULL, NULL, NULL };   /* S3.5: blend = pal is the DAC; S3.6 */
+    const ComposeSrc cs = { sh_work, l3d_work, lvec_work, NULL, NULL, 0, 0, 0, 0, NULL, blend, blend ? l3n_work : NULL, NULL, NULL, .mac = NULL };   /* S3.5: blend = pal is the DAC; S3.6 */
     compose_canvas(out, page, ident, pal, true, &cs);
 }
 
@@ -852,7 +929,7 @@ static void probe_flip(void)
                     fwrite(hd, 4, 2, o);
                     fwrite(img, 4, layer_px, o);
                     static Shadow none[PAGE_PIXELS];                       /* no records: the 1x page scaled N x N, the classic picture of the same frame */
-                    const ComposeSrc c1 = { none, l3d_shown, lvec_shown, NULL, NULL, 0, 0, 0, 0, NULL, false, NULL, NULL, NULL };
+                    const ComposeSrc c1 = { none, l3d_shown, lvec_shown, NULL, NULL, 0, 0, 0, 0, NULL, false, NULL, NULL, NULL, .mac = NULL };
                     compose_canvas(img, pg, ident, pal, true, &c1);
                     fwrite(img, 4, layer_px, o);
                     if (cls && ndo) { fwrite(cls, 1, layer_px, o); fwrite(ndo, 1, layer_px, o); }
