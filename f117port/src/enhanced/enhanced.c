@@ -31,7 +31,7 @@ int enh_parse_arg(int argc, char **argv, int i)
     if (!strcmp(argv[i], "--classic")) {              /* every enhancement off, whatever else is on the command line */
         enh.classic = true; enh.canvas = false; enh.wide = false; enh.render_scale = 0; enh.dither_fine = false; enh.hr_check = false; enh.hr_dump[0] = 0;
         enh.sandbox_test = 0; enh.wide_test_w = enh.wide_test_h = 0; enh.smooth_shading = false; enh.true_night = false;
-        enh.fps = 0; enh.fps_test = 0; enh.fine_terrain = false;
+        enh.fps = 0; enh.fps_test = 0; enh.fine_terrain = false; enh.mac_art[0] = 0;
         return 1;
     }
     if (!strcmp(argv[i], "--render-scale") && i + 1 < argc) {
@@ -66,8 +66,10 @@ int enh_parse_arg(int argc, char **argv, int i)
     }
     if (!strcmp(argv[i], "--fps-check")) { if (!enh.classic) enh.fps_check = 1; return 1; }   /* S4.3 test aid */
     if (!strcmp(argv[i], "--fps-trace") && i + 1 < argc) { if (!enh.classic) snprintf(enh.fps_trace, sizeof enh.fps_trace, "%s", argv[i + 1]); return 2; }
+    if (!strcmp(argv[i], "--mac-art") && i + 1 < argc) { if (!enh.classic) snprintf(enh.mac_art, sizeof enh.mac_art, "%s", argv[i + 1]); return 2; }   /* Phase 7 */
     if (!strcmp(argv[i], "--compose-test")) { enh.compose_test = 1; return 1; }
     if (!strcmp(argv[i], "--wide-geometry-test")) { enh.compose_test = 2; return 1; }
+    if (!strcmp(argv[i], "--mac-art-test")) { enh.compose_test = 4; return 1; }   /* S7.1 */
     if (!strcmp(argv[i], "--interp-test")) { enh.compose_test = 3; return 1; }   /* S4.2 */
     if (!strcmp(argv[i], "--dither") && i + 1 < argc) {
         if (!strcmp(argv[i + 1], "fine")) enh.dither_fine = !enh.classic;
