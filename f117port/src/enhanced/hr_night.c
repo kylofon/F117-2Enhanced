@@ -142,7 +142,7 @@ u8 hr_night_obj(s32 x, s32 y)
 
 /* after 1442 (every detail level): the pass geometry from the band geometry of 2.11, t(q) = -(sn (qx - w2) + cs (qy - h2) 4/3) - H in 1x t-units; the focal
  * f = 256 << [433A], halved with [294B]; alt = [4980]. Then every written, not stamped pixel of the pass window gets its sky / ground factor. */
-void hr_night_backdrop(s16 H)
+void hr_night_backdrop(double H)
 {
     if (!enh_hr.night || !enh_hr.on || !enh_hr.layer) return;
     const double N = enh_hr.n;

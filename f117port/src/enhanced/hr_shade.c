@@ -136,13 +136,13 @@ static void band_rows(void *jp, int lo, int hi)
     }
 }
 
-void hr_band_blend(s16 H, const s16 *sky, const s16 *gnd)
+void hr_band_blend(double H, const s16 *sky, const s16 *gnd)
 {
     if (!hr_smooth || !enh_hr.on || !enh_hr.layer) return;
     BandJob j;
     for (int g = 0; g < 2; g++) {
         for (int i = 0; i <= 16; i++)
-            j.T[g][i] = g ? (i < 16 ? (s16)(H - gnd[i]) : (s16)0xA7B8) : (i < 16 ? (s16)(sky[i] + H) : 0x5848);
+            j.T[g][i] = g ? (i < 16 ? H - gnd[i] : (s16)0xA7B8) : (i < 16 ? sky[i] + H : 0x5848);
         for (int i = 0; i < 15; i++) j.W[g][i] = j.T[g][i + 1] - j.T[g][i];
         j.W[g][15] = j.W[g][14];                                      /* band 15 runs to +-22600: the width of band 14 */
     }

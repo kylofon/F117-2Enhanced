@@ -104,7 +104,7 @@ void hr_shade_dequeue(u16 rec);                    /* r3d_draw_queued (DF08) aft
 void hr_shade_colour(u16 colour);                  /* r3d_setcolor_M (1359:01D4): the colour word before the shade (its unshaded low byte) */
 u8   hr_shade_lo(u16 colour);                       /* S3.6: the unshaded low byte of the colour word being drawn */
 u16  hr_shade_code(u16 colour);                    /* the blend code of a fill / line in the colour word (DS:85D6 after set_colour_M); 0 = not a shaded colour */
-void hr_band_blend(s16 H, const s16 *sky, const s16 *gnd);   /* hr_sky_ground after the bands: the per-pixel code of the band pixels */
+void hr_band_blend(double H, const s16 *sky, const s16 *gnd);   /* hr_sky_ground after the bands: the per-pixel code of the band pixels */
 void hr_shade_regions(void (*add)(void *p, size_t n));
 
 /* ---- S3.6 true night (hr_night.c, DESIGN 2.12): the night plane (u8 per layer pixel: 0 = no night pass, 1..254 = the brightness factor / 256, HR_NIGHT_LIT = a
@@ -123,7 +123,7 @@ void hr_night_cond(u16 v);                         /* r3d_face_list: a condition
 void hr_night_elem(void);                          /* r3d_face_list: an element (polygon / lines) begins */
 int  hr_night_mode(bool line, u8 c);               /* the mode of the object fill / line being drawn in colour c */
 u8   hr_night_obj(s32 x, s32 y);                   /* the factor of an object pixel */
-void hr_night_backdrop(s16 H);                     /* hr_sky_ground after the backdrop: the sky / ground factors of its pixels */
+void hr_night_backdrop(double H);                    /* hr_sky_ground after the backdrop: the sky / ground factors of its pixels */
 void hr_night_regions(void (*add)(void *p, size_t n));
 
 /* ---- inside the back end */

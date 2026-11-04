@@ -8,6 +8,7 @@
  * delta are tested at the 1x magnitude (|v| > 32767 N) and saturate to N * 7F00h. A single-pixel span at column 0 or 13Fh is skipped
  * (slot 37 quirk), 13Fh read as the last layer column of frame column 319, N 320 - 1. */
 #include "enhanced/hr.h"
+#include "enhanced/enhanced.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -250,7 +251,10 @@ static void poly_fill_hr(int n, const s64 *pts, u8 colour)
 static s64 m15(s64 a, s64 b, int n) { return (a * b * n + 0x4000) >> 15; }
 
 /* band_points of r3d_sky.c at 1x (the original s16 code), exact at 1x, and at N x; per coordinate the R1 wrap rule */
-static void band_points_hr(s16 t, s64 out[4])
+#define NO_Q8 INT64_MIN
+/* tq (Q8, 1/256 of a 1x unit): the exact position of the band edge (--fine-terrain): the horizon is not rounded to a whole 1x row, so it keeps its place against the
+ * terrain, which is exact at N x (NO_Q8 = the faithful integer t) */
+static void band_points_hr(s16 t, s64 tq, s64 out[4])
 {
     s16 nsC = (s16)DSW(0x98C8), cC = (s16)DSW(0x498C), w2 = (s16)DSW(0x0D1E), h2 = (s16)DSW(0x0D20);
     const s16 A = (s16)0xA7B8;
@@ -266,6 +270,10 @@ static void band_points_hr(s16 t, s64 out[4])
     for (int pass = 0; pass < 2; pass++) {               /* 0: exact at 1x, 1: at N x */
         int n = pass ? N : 1;
         s64 Si = m15(cC, A, n), Di = m15(nsC, t, n), Si2 = m15(cC, t, n), Di2 = m15(nsC, A, n);
+        if (pass && tq != NO_Q8) {                       /* ENH: fine terrain */
+            Di = ((s64)nsC * tq * n + 0x400000) >> 23;
+            Si2 = ((s64)cC * tq * n + 0x400000) >> 23;
+        }
         s64 e[4];
         e[0] = (s64)n * w2 - Di + Si;
         e[2] = (s64)n * w2 - Di - Si;
@@ -278,14 +286,16 @@ static void band_points_hr(s16 t, s64 out[4])
     }
 }
 
-static void bands_hr(s16 H, const s16 *off, bool ground, bool flag)
+static void bands_hr(s16 H, s64 Hq, const s16 *off, bool ground, bool flag)
 {
     s64 P[17][4];
     for (int i = 0; i <= 16; i++) {
         s16 t;
         if (ground) t = i < 16 ? (s16)(H - off[i]) : (s16)0xA7B8;
         else t = i < 16 ? (s16)(off[i] + H) : 0x5848;
-        band_points_hr(t, P[i]);
+        s64 tq = NO_Q8;
+        if (Hq != NO_Q8) tq = i < 16 ? (ground ? Hq - ((s64)off[i] << 8) : Hq + ((s64)off[i] << 8)) : (s64)t * 256;
+        band_points_hr(t, tq, P[i]);
     }
     for (int i = 0; i < 16; i++) {
         s64 pts[8] = { P[i][0], P[i][1], P[i][2], P[i][3], P[i + 1][2], P[i + 1][3], P[i + 1][0], P[i + 1][1] };
@@ -397,16 +407,23 @@ void hr_sky_ground(void *ctx)
     u8 z = DSB(0x433A);
     if (z) H = (z & 0x1F) < 16 ? (s16)(u16)((u16)H << (z & 0x1F)) : 0;
     if (DSB(0x294B)) H >>= 1;
-    if ((s8)DSB(0x98DE) < 3) { hz_draw_hr(); hr_night_backdrop(H); /* S3.6 */ return; }
+    s64 Hq = NO_Q8;
+    if (enh_fine_terrain_on() && !hr_smooth && !enh_hr.night) {   /* ENH: the horizon offset with 8 fractional bits (not with the S3.5 / S3.6 band blend and night factors, which work on the whole row) */
+        Hq = ((s64)(s16)DSW(0x4986) * 65536) / cB;
+        if (z) Hq = (z & 0x1F) < 16 ? Hq * (1 << (z & 0x1F)) : 0;
+        if (DSB(0x294B)) Hq >>= 1;
+    }
+    const double Hd = Hq != NO_Q8 ? (double)Hq / 256.0 : (double)H;
+    if ((s8)DSB(0x98DE) < 3) { hz_draw_hr(); hr_night_backdrop(Hd); /* S3.6 */ return; }
     bool flag = DSW(0x4360) && DSW(0x43B2);
     s16 sky[16], gnd[16];
     for (int i = 0; i < 16; i++) sky[i] = (s16)DSW(0x0D22 + 2 * i);
-    bands_hr(H, sky, false, flag);
+    bands_hr(H, Hq, sky, false, flag);
     s16 alt = (s16)DSW(0x4980);
     u16 c0 = (u16)(alt / 0x200);
     gnd[0] = 0;
     for (int i = 1; i < 16; i++) gnd[i] = (s16)(u16)((u16)(alt / ((16 - i) << 5)) - c0);
-    bands_hr(H, gnd, true, flag);
-    if (!flag) hr_band_blend(H, sky, gnd);               /* S3.5: the position of each band pixel inside its band (--smooth-shading) */
-    if (!flag) hr_night_backdrop(H);                     /* S3.6: the sky / ground night factors (--true-night) */
+    bands_hr(H, Hq, gnd, true, flag);
+    if (!flag) hr_band_blend(Hd, sky, gnd);               /* S3.5: the position of each band pixel inside its band (--smooth-shading) */
+    if (!flag) hr_night_backdrop(Hd);                     /* S3.6: the sky / ground night factors (--true-night) */
 }

@@ -314,22 +314,24 @@ void hr_clip_edge(HrEdge *e)
     path32(e);
 }
 
-/* ---------------------------------------------------------------- 11EB:0B3F make_edge */
 
-/* 11EB:0990 r3d_near_bisect on the corrected camera-space vertices (fine terrain): the near-plane point of the edge from the front vertex p0o to the one behind, p1o */
-static void near_bisect_fine(u16 p0o, u16 p1o, const s32 cr[3], s32 *ox, s32 *oy)
+/* Fine terrain: the point of the edge from the front vertex p0o to the one behind, p1o, at the depth 1.0 (zh = 1, where the vertices stop being projected), exactly, on the
+ * corrected camera-space vertices. 11EB:0990 r3d_near_bisect stops at the first midpoint whose depth is below 2.0 and 11EB:0B3F then projects it as if it lay at depth 0.5, so the
+ * clipped edge of a ground polygon at a grazing angle points somewhere else each time the camera moves a little (the coast jumping at low altitude). The point goes back as
+ * the camera-space x, y halved: make_edge below turns that into the screen position A / 256 of the 0975 projection of depth 1.0. */
+static void near_point_fine(u16 p0o, u16 p1o, const s32 cr[3], s32 *ox, s32 *oy)
 {
-    s32 p0[3], p1[3], m[3];
-    for (int c = 0; c < 3; c++) { p0[c] = DSSL((u16)(p0o + 4 * c)) + cr[c]; p1[c] = DSSL((u16)(p1o + 4 * c)) + cr[c]; }
-    for (;;) {
-        for (int c = 0; c < 3; c++) m[c] = (s32)((u32)p0[c] + (u32)p1[c] + 1u) >> 1;
-        *ox = m[0]; *oy = m[1];
-        u16 h = (u16)((u32)m[2] >> 16);
-        if (h <= 1) return;
-        if ((s16)(h - 1) < 0) memcpy(p1, m, sizeof m);
-        else memcpy(p0, m, sizeof m);
-    }
+    s64 p0[3], p1[3];
+    for (int c = 0; c < 3; c++) { p0[c] = (s64)DSSL((u16)(p0o + 4 * c)) + cr[c]; p1[c] = (s64)DSSL((u16)(p1o + 4 * c)) + cr[c]; }
+    const s64 zn = 0x10000;
+    s64 dz = p1[2] - p0[2];
+    if (dz == 0 || p0[2] < zn) { *ox = (s32)(p0[0] >> 1); *oy = (s32)(p0[1] >> 1); return; }
+    s64 num = zn - p0[2];                                    /* t = num / dz, t in (0, 1] */
+    *ox = (s32)((p0[0] + (p1[0] - p0[0]) * num / dz) >> 1);
+    *oy = (s32)((p0[1] + (p1[1] - p0[1]) * num / dz) >> 1);
 }
+
+/* ---------------------------------------------------------------- 11EB:0B3F make_edge */
 
 void hr_make_edge(u16 rec, u16 v0x8, u16 v1x8)
 {
@@ -351,8 +353,8 @@ void hr_make_edge(u16 rec, u16 v0x8, u16 v1x8)
         s32 cr[3];
         terr_corr(cr);
         const u16 V0 = (u16)(0xC688 + 2 * v0x8), V1 = (u16)(0xC688 + 2 * v1x8);
-        if (p1->behind) near_bisect_fine(V0, V1, cr, &b0, &b1);
-        else near_bisect_fine(V1, V0, cr, &b0, &b1);
+        if (p1->behind) near_point_fine(V0, V1, cr, &b0, &b1);
+        else near_point_fine(V1, V0, cr, &b0, &b1);
     }
     s32 nx = (s32)((((s64)b0 * N) >> 8) * 2 + cx);
     s32 ny = (s32)((((s64)b1 * N) >> 8) * 2 + cy);

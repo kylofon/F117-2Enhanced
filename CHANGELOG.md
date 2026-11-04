@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Fine terrain** (`--fine-terrain`, default on). Near the ground the coast and the land / sea edges of the distant terrain were drawn too low and moved in steps as the aircraft climbed (at the Libya start the hangars on the right stood in the water). The terrain now uses the exact height of the camera. Also in the original game. `--no-fine-terrain` or `--classic` brings the original drawing back.
+- **Fine terrain** (`--fine-terrain`, default on). Near the ground the coast and the land / sea edges of the distant terrain were drawn too low and moved in steps as the aircraft climbed (at the Libya start the hangars on the right stood in the water). The terrain now uses the exact height of the camera. Also in the original game. The horizon is no longer rounded to a whole row either, and a ground edge that runs behind the camera is cut at the right place, so the coast no longer creeps away and jumps back as you climb. `--no-fine-terrain` or `--classic` brings the original drawing back.
 
 ## 0.2.0 (2026-10-29)
 
