@@ -18,6 +18,7 @@
 #include <wx/statbox.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
+#include <wx/utils.h>
 
 #ifdef __WXMSW__
 #include <wx/msw/wrapcctl.h>
@@ -192,13 +193,16 @@ LauncherDialog::LauncherDialog()
     macCockpit_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { UpdateEnhanced(); });
     auto* macGrid = new wxFlexGridSizer(2, gap, gap);
     macGrid->AddGrowableCol(1);
-    macArt_ = PathRow(eb, macGrid, "&Mac art folder:",
-                      "The cockpit and side views of the Mac release, converted from your own Mac copy with "
-                      "tools/mac_art.py (see the README). Empty: the PC pictures.",
+    macArt_ = PathRow(eb, macGrid, "&Mac art:",
+                      "Your own copy of the Mac release: its StuffIt archive (e.g. f117a_stealth_fighter.sit), "
+                      "or a folder made from it with tools/mac_art.py (see the README).",
                       &macBrowse_);
     macLabel_ = static_cast<wxStaticText*>(macGrid->GetItem(static_cast<size_t>(0))->GetWindow());
     enhBox->Add(macGrid, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, gap);
     macBrowse_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { BrowseMacArt(); });
+    macArt_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) {
+        if (!loading_) UpdateState();
+    });
     classic_ = new wxCheckBox(eb, wxID_ANY, "Classic (all enhancements &off)");
     classic_->SetToolTip("Plays exactly like the original 320x200 game, whatever the other Enhanced options say.");
     enhBox->Add(classic_, 0, wxALL, gap);
@@ -285,14 +289,33 @@ void LauncherDialog::UpdateEnhanced() {
     if (!loading_) UpdateState();
 }
 
-// The pictures the game reads from the Mac art folder (src/enhanced/macart.c, made by tools/mac_art.py).
-static wxString MissingMacFile(const wxString& dir) {
-    if (dir.empty()) return "the Mac art folder";
-    for (const char* name : {"CockpitOff", "LeftCock", "RightCock", "RearCock"}) {
-        const wxString file = wxString(name) + ".mpic";
-        if (!wxFileName::FileExists(wxFileName(dir, file).GetFullPath())) return file;
+// What the Mac cockpit misses, empty = ready. A folder (tools/mac_art.py) needs the four pictures the game reads
+// (src/enhanced/macart.c); an archive or resource fork is checked by the game itself (--mac-art-test), once per file.
+wxString LauncherDialog::MissingMacArt() {
+    const wxString path = macArt_->GetValue().Strip(wxString::both);
+    if (path.empty()) return "Mac cockpit: choose the Mac release's .sit archive.";
+    if (wxFileName::DirExists(path)) {
+        for (const char* name : {"CockpitOff", "LeftCock", "RightCock", "RearCock"}) {
+            const wxString file = wxString(name) + ".mpic";
+            if (!wxFileName::FileExists(wxFileName(path, file).GetFullPath()))
+                return wxString::Format("Mac cockpit: %s is missing in the folder.", file);
+        }
+        return "";
     }
-    return "";
+    if (!wxFileName::FileExists(path)) return "Mac cockpit: the Mac art file isn't there.";
+    const wxFileName fn(path);
+    const wxString program = program_->GetValue();
+    const wxString key = path + "|" + fn.GetSize().ToString() + "|" + fn.GetModificationTime().FormatISOCombined() + "|" + program;
+    if (key != macKey_) {
+        macKey_ = key;
+        wxBusyCursor busy;
+        const wxString argv0 = program, a1 = "--mac-art", a3 = "--mac-art-test";
+        const wchar_t* argv[] = {argv0.wc_str(), a1.wc_str(), path.wc_str(), a3.wc_str(), nullptr};
+        const long rc = wxExecute(argv, wxEXEC_SYNC | wxEXEC_HIDE_CONSOLE | wxEXEC_NODISABLE);
+        macResult_ = rc == 0 ? wxString()
+                             : wxString("Mac cockpit: no Mac cockpit pictures in this file (choose the full game's .sit, not an update).");
+    }
+    return macResult_;
 }
 
 void LauncherDialog::UpdateState() {
@@ -301,8 +324,8 @@ void LauncherDialog::UpdateState() {
     const bool dos = exists && IsDosProgram(program);
     const bool haveProgram = exists && !dos;
     const wxString missing = MissingGameFile(dir);
-    const wxString macMissing = !classic_->GetValue() && macCockpit_->GetValue()
-                                    ? MissingMacFile(macArt_->GetValue().Strip(wxString::both)) : wxString();
+    const wxString macMissing =
+        haveProgram && missing.empty() && !classic_->GetValue() && macCockpit_->GetValue() ? MissingMacArt() : wxString();
     wxString note;
     if (!missing.empty())
         note = wxString::Format("This folder needs the game's files: %s is missing.", missing);
@@ -312,7 +335,7 @@ void LauncherDialog::UpdateState() {
     else if (!haveProgram)
         note = wxString::Format("%s isn't there.", wxFileName(program).GetFullName());
     else if (!macMissing.empty())
-        note = wxString::Format("Mac cockpit: %s is missing (make the folder with tools/mac_art.py).", macMissing);
+        note = macMissing;
     else
         note = "Found the game's files.";
     const bool ok = haveProgram && missing.empty() && macMissing.empty();
@@ -329,9 +352,11 @@ void LauncherDialog::BrowseFolder() {
 }
 
 void LauncherDialog::BrowseMacArt() {
-    wxDirDialog dialog(this, "Choose the Mac art folder (made by tools/mac_art.py)", macArt_->GetValue(),
-                       wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
-    if (dialog.ShowModal() == wxID_OK) macArt_->SetValue(dialog.GetPath());
+    wxFileName current(macArt_->GetValue());
+    wxFileDialog dialog(this, "Choose the Mac release's StuffIt archive (e.g. f117a_stealth_fighter.sit)", current.GetPath(),
+                        current.GetFullName(), "StuffIt archives (*.sit)|*.sit|All files (*.*)|*.*",
+                        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() == wxID_OK) macArt_->SetValue(dialog.GetPath());  // raises wxEVT_TEXT
 }
 
 void LauncherDialog::BrowseProgram() {
@@ -363,7 +388,7 @@ GameOptions LauncherDialog::Options() const {
     options.trueNight = night_->GetValue();
     if (macCockpit_->GetValue()) {
         const wxString mac = macArt_->GetValue().Strip(wxString::both);
-        if (!mac.empty()) options.macArt = wxFileName::DirName(mac).GetPath();
+        if (!mac.empty()) options.macArt = wxFileName::DirExists(mac) ? wxFileName::DirName(mac).GetPath() : wxFileName(mac).GetFullPath();
     }
     options.keys = keys::Argument(bindings_);
     return options;

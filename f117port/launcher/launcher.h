@@ -56,6 +56,8 @@ private:
     wxCheckBox* night_ = nullptr;
     wxCheckBox* classic_ = nullptr;
     wxCheckBox* macCockpit_ = nullptr;
+    wxString macKey_, macResult_;  // the last archive checked (path, size, time, program) and what was missing
+    wxString MissingMacArt();
     wxStaticText* macLabel_ = nullptr;
     wxTextCtrl* macArt_ = nullptr;
     wxButton* macBrowse_ = nullptr;

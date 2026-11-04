@@ -64,7 +64,7 @@ static int usage(const char *prog)
             "          [--trace] [--check] [--chain-test] [--tick-test [MS]]\n"
             "          [--keys NAME=CODE,...] [--keymap-test] [--frame-ticks N] [--version] [--classic]\n"
             "          [--render-scale N] [--wide] [--no-wide] [--smooth-shading] [--true-night] [--fps vsync|60|30|off]\n"
-            "          [--mac-art DIR]\n"
+            "          [--mac-art FILE|DIR]\n"
             "          [--compose-test] [--interp-test]   (Enhanced)\n", prog);
     return 2;
 }

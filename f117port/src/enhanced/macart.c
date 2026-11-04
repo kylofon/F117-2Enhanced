@@ -1,12 +1,14 @@
 /* The Mac art loader (S7.1, see macart.h). File format (tools/mac_art.py): 'MPIC', w, h, ncolours (u16 LE), ncolours RGB,
  * w * h indices. */
 #include "macart.h"
+#include "macsit.h"
 #include "enhanced.h"
 #include "host.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "mem.h"
 #include "video/video.h"
@@ -44,6 +46,16 @@ static bool load(MacPic *p, const char *path)
 const MacPic *enh_mac_pic(MacPicId id)
 {
     if (!enh_mac_on() || (unsigned)id >= MAC_PIC_COUNT) return NULL;
+    static bool archive_tried;
+    struct stat st;
+    if (!archive_tried && !stat(enh.mac_art, &st) && !(st.st_mode & S_IFDIR)) {   /* a .sit or the resource fork: all four at once */
+        archive_tried = true;
+        const int n = enh_mac_sit_load(enh.mac_art, names, MAC_PIC_COUNT, pics);
+        for (int i = 0; i < MAC_PIC_COUNT; i++) tried[i] = 1;
+        if (n < MAC_PIC_COUNT)
+            host_log_error("--mac-art: %d of %d cockpit pictures in %s (a StuffIt archive of the Mac release, or a folder of "
+                           "tools/mac_art.py); the PC art is used where missing", n < 0 ? 0 : n, MAC_PIC_COUNT, enh.mac_art);
+    }
     if (!tried[id]) {
         tried[id] = 1;
         char path[1200];
@@ -65,12 +77,17 @@ int enh_mac_selftest(void)
     int fail = 0, found = 0;
     for (int id = 0; id < MAC_PIC_COUNT; id++) {
         const MacPic *p = enh_mac_pic((MacPicId)id);
-        if (!p) { printf("mac-art-test: %s missing\n", names[id]); continue; }
+        if (!p) { printf("mac-art-test: %s missing\n", names[id]); fail++; continue; }
         found++;
         long keyed = 0;
-        for (long i = 0; i < (long)p->w * p->h; i++) keyed += p->key[p->pix[i]];
+        u32 sum = 2166136261u;                         /* FNV-1a of the pixels' RGB: a folder and its archive match */
+        for (long i = 0; i < (long)p->w * p->h; i++) {
+            keyed += p->key[p->pix[i]];
+            sum = (sum ^ p->rgb[p->pix[i]]) * 16777619u;
+        }
         bool ok = p->w == 640 && p->h == 480 && keyed > 0;
-        printf("mac-art-test: %-10s %dx%d, %ld see-through pixels %s\n", names[id], p->w, p->h, keyed, ok ? "ok" : "UNEXPECTED");
+        printf("mac-art-test: %-10s %dx%d, %ld see-through pixels, sum %08X %s\n", names[id], p->w, p->h, keyed, (unsigned)sum,
+               ok ? "ok" : "UNEXPECTED");
         fail += !ok;
     }
     return found == 0 ? 77 : fail ? 1 : 0;

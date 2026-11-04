@@ -1,5 +1,5 @@
 /* The Mac art option (PLAN.md Phase 7, DESIGN.md 7): the cockpit pictures of the Mac release (640x480, the original
- * MicroProse art), converted by tools/mac_art.py from the user's own Mac files into a folder given with --mac-art DIR.
+ * MicroProse art), from the user's own Mac release given with --mac-art FILE|DIR (its .sit, see macsit.h, or a folder of tools/mac_art.py).
  * Off by default and with --classic; a missing folder or picture leaves the PC art (one log line). */
 #pragma once
 
