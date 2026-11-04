@@ -282,6 +282,17 @@ void LauncherDialog::UpdateEnhanced() {
         w->Enable(on);
     const bool mac = on && macCockpit_->GetValue();
     for (wxWindow* w : std::initializer_list<wxWindow*>{macLabel_, macArt_, macBrowse_}) w->Enable(mac);
+    if (!loading_) UpdateState();
+}
+
+// The pictures the game reads from the Mac art folder (src/enhanced/macart.c, made by tools/mac_art.py).
+static wxString MissingMacFile(const wxString& dir) {
+    if (dir.empty()) return "the Mac art folder";
+    for (const char* name : {"CockpitOff", "LeftCock", "RightCock", "RearCock"}) {
+        const wxString file = wxString(name) + ".mpic";
+        if (!wxFileName::FileExists(wxFileName(dir, file).GetFullPath())) return file;
+    }
+    return "";
 }
 
 void LauncherDialog::UpdateState() {
@@ -290,6 +301,8 @@ void LauncherDialog::UpdateState() {
     const bool dos = exists && IsDosProgram(program);
     const bool haveProgram = exists && !dos;
     const wxString missing = MissingGameFile(dir);
+    const wxString macMissing = !classic_->GetValue() && macCockpit_->GetValue()
+                                    ? MissingMacFile(macArt_->GetValue().Strip(wxString::both)) : wxString();
     wxString note;
     if (!missing.empty())
         note = wxString::Format("This folder needs the game's files: %s is missing.", missing);
@@ -298,9 +311,11 @@ void LauncherDialog::UpdateState() {
                                 wxFileName(program).GetFullName());
     else if (!haveProgram)
         note = wxString::Format("%s isn't there.", wxFileName(program).GetFullName());
+    else if (!macMissing.empty())
+        note = wxString::Format("Mac cockpit: %s is missing (make the folder with tools/mac_art.py).", macMissing);
     else
         note = "Found the game's files.";
-    const bool ok = haveProgram && missing.empty();
+    const bool ok = haveProgram && missing.empty() && macMissing.empty();
     statusIcon_->Show(!ok);
     statusNote_->SetLabel(note);
     play_->Enable(ok);
