@@ -98,6 +98,10 @@ std::vector<wxString> GameArguments(const GameOptions& o) {
         if (!o.wide) args.push_back("--no-wide");
         if (o.smoothShading) args.push_back("--smooth-shading");
         if (o.trueNight) args.push_back("--true-night");
+        if (!o.macArt.empty()) {
+            args.push_back("--mac-art");
+            args.push_back(o.macArt);
+        }
     }
     return args;
 }

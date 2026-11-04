@@ -186,6 +186,15 @@ LauncherDialog::LauncherDialog()
     night_ = new wxCheckBox(eb, wxID_ANY, "True &night");
     night_->SetToolTip("Makes night flights really dark: a near black sky and ground and objects fading into the dark with distance.");
     enhBox->Add(night_, 0, wxLEFT | wxRIGHT | wxTOP, gap);
+    auto* macGrid = new wxFlexGridSizer(2, gap, gap);
+    macGrid->AddGrowableCol(1);
+    macArt_ = PathRow(eb, macGrid, "&Mac art folder:",
+                      "The cockpit and side views of the Mac release, converted from your own Mac copy with "
+                      "tools/mac_art.py (see the README). Empty: the PC pictures.",
+                      &macBrowse_);
+    macLabel_ = static_cast<wxStaticText*>(macGrid->GetItem(static_cast<size_t>(0))->GetWindow());
+    enhBox->Add(macGrid, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, gap);
+    macBrowse_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { BrowseMacArt(); });
     classic_ = new wxCheckBox(eb, wxID_ANY, "Classic (all enhancements &off)");
     classic_->SetToolTip("Plays exactly like the original 320x200 game, whatever the other Enhanced options say.");
     enhBox->Add(classic_, 0, wxALL, gap);
@@ -235,6 +244,7 @@ LauncherDialog::LauncherDialog()
     smooth_->SetValue(settings::GetInt(SECTION, "SmoothShading", 0) != 0);
     night_->SetValue(settings::GetInt(SECTION, "TrueNight", 0) != 0);
     classic_->SetValue(settings::GetInt(SECTION, "Classic", 0) != 0);
+    macArt_->ChangeValue(settings::GetString(SECTION, "MacArt", ""));
     UpdateEnhanced();
     bindings_ = keys::Load();
     loading_ = false;
@@ -263,7 +273,8 @@ void LauncherDialog::FillScales() {
 
 void LauncherDialog::UpdateEnhanced() {
     const bool on = !classic_->GetValue();
-    for (wxWindow* w : std::initializer_list<wxWindow*>{renderLabel_, renderScale_, frameLabel_, frameRate_, wide_, smooth_, night_}) w->Enable(on);
+    for (wxWindow* w : std::initializer_list<wxWindow*>{renderLabel_, renderScale_, frameLabel_, frameRate_, wide_, smooth_, night_, macLabel_, macArt_, macBrowse_})
+        w->Enable(on);
 }
 
 void LauncherDialog::UpdateState() {
@@ -295,6 +306,12 @@ void LauncherDialog::BrowseFolder() {
     if (dialog.ShowModal() == wxID_OK) folder_->SetValue(dialog.GetPath());  // raises wxEVT_TEXT
 }
 
+void LauncherDialog::BrowseMacArt() {
+    wxDirDialog dialog(this, "Choose the Mac art folder (made by tools/mac_art.py)", macArt_->GetValue(),
+                       wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+    if (dialog.ShowModal() == wxID_OK) macArt_->SetValue(dialog.GetPath());
+}
+
 void LauncherDialog::BrowseProgram() {
     wxFileName current(program_->GetValue());
 #ifdef __WXMSW__
@@ -322,6 +339,10 @@ GameOptions LauncherDialog::Options() const {
     options.wide = wide_->GetValue();
     options.smoothShading = smooth_->GetValue();
     options.trueNight = night_->GetValue();
+    {
+        const wxString mac = macArt_->GetValue().Strip(wxString::both);
+        if (!mac.empty()) options.macArt = wxFileName::DirName(mac).GetPath();
+    }
     options.keys = keys::Argument(bindings_);
     return options;
 }
@@ -358,6 +379,7 @@ void LauncherDialog::Save() {
     settings::SetInt(SECTION, "SmoothShading", smooth_->GetValue() ? 1 : 0);
     settings::SetInt(SECTION, "TrueNight", night_->GetValue() ? 1 : 0);
     settings::SetInt(SECTION, "Classic", classic_->GetValue() ? 1 : 0);
+    settings::SetString(SECTION, "MacArt", macArt_->GetValue().Strip(wxString::both));
     settings::SaveWindowPosition(SECTION, this);
 }
 

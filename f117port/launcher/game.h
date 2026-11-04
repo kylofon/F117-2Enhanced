@@ -37,6 +37,7 @@ struct GameOptions {
     bool wide = true;             // false: --no-wide
     bool smoothShading = false;   // --smooth-shading
     bool trueNight = false;       // --true-night
+    wxString macArt;              // --mac-art DIR: the Mac release's cockpit pictures (tools/mac_art.py); empty = off
     wxString keys;            // --keys: the actions not on their default keys (keys::Argument), empty if none
 };
 

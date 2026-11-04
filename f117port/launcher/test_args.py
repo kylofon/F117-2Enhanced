@@ -28,7 +28,7 @@ def check(name, args, present=(), absent=(), pairs=()):
         if k not in args or os.path.normcase(os.path.normpath(args[args.index(k) + 1])) != os.path.normcase(os.path.normpath(v)): fails.append("%s: %s %s expected" % (name, k, v))
 
 a = run("defaults", "")
-check("defaults", a, absent=["--classic", "--render-scale", "--fps", "--no-wide", "--smooth-shading", "--true-night", "--fullscreen"],
+check("defaults", a, absent=["--classic", "--render-scale", "--fps", "--no-wide", "--smooth-shading", "--true-night", "--fullscreen", "--mac-art"],
       pairs=[("--game-dir", os.path.join(work, "gamedir")), ("--frame-ticks", "7")])
 if not a[0].lower().endswith("f117-enhanced.exe"): fails.append("defaults: program %s" % a[0])
 a = run("scale4", "RenderScale=4\nWide=0\nSmoothShading=1\nTrueNight=1\nFullscreen=1\n")
@@ -47,6 +47,10 @@ a = run("classic_fps60", "FrameRate=1\nClassic=1\n")
 check("classic_fps60", a, present=["--classic"], absent=["--fps"])
 a = run("auto_night", "RenderScale=0\nTrueNight=1\nFrameTicks=0\n")
 check("auto_night", a, present=["--true-night"], absent=["--render-scale", "--no-wide"], pairs=[("--frame-ticks", "0")])
+a = run("mac_art", "MacArt=%s\n" % os.path.join(work, "mac"))
+check("mac_art", a, absent=["--classic"], pairs=[("--mac-art", os.path.join(work, "mac"))])
+a = run("classic_mac", "MacArt=%s\nClassic=1\n" % os.path.join(work, "mac"))
+check("classic_mac", a, present=["--classic"], absent=["--mac-art"])
 if fails:
     sys.exit("\n".join(fails))
 print("launcher_args OK")

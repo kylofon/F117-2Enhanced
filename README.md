@@ -40,13 +40,30 @@ The errors the game reports go to `f117.log` beside the program.
 f117-enhanced [--game-dir DIR] [--scale N] [--aspect 4:3|1:1] [--fullscreen] [--frame-ticks N]
               [--keys NAME=CODE,...] [--check] [--version]
               [--classic] [--render-scale N] [--fps vsync|60|30|off] [--wide|--no-wide]
-              [--smooth-shading|--no-smooth-shading] [--true-night|--no-true-night]
+              [--smooth-shading|--no-smooth-shading] [--true-night|--no-true-night] [--mac-art DIR]
 ```
 
 * `--classic`: every enhancement off, whatever else is given. `--render-scale N`: 1 to 8 times 320x200 (default Auto).
 * `--fps vsync|60|30|off`: pictures a second (default vsync: the monitor's refresh).
 * `--wide` (default) / `--no-wide`; `--smooth-shading`, `--true-night`: off by default.
+* `--mac-art DIR`: the Mac cockpit pictures (below); off by default and with `--classic`.
 * The other options are the faithful port's; the remaining test options are listed at the top of `f117port/src/main.c`.
+
+## Mac cockpit art (optional)
+
+The Mac release of F-117A (2.x) drew its cockpit and its rear, left and right views as 640x480 pictures. If you own the Mac
+version, the game can use them instead of the PC pictures: the front cockpit with its own panel (the PC displays, lamps and
+readouts are shown in the Mac panel's places) and the looking-out views. Nothing of the Mac release is part of this
+project: convert your own copy once with the Python tool (Python 3, no extra packages):
+
+```bash
+python tools/mac_art.py "F117a Stealth Fighter.sit" "C:/Games/F117 Mac art"
+```
+
+The source is a classic StuffIt archive of the Mac release, the `F117a Art` resource fork (`F117a Art.rsrc` as written by an
+unstuffer, or `F117a Art/..namedfork/rsrc` on a Mac), or a folder holding either. Then start the game with
+`--mac-art "C:/Games/F117 Mac art"` or choose the folder as **Mac art folder** in the launcher. A missing folder or picture
+leaves the PC art (the reason is in `f117.log`). The Mac front cockpit needs the wide view (on by default).
 
 ## Building
 

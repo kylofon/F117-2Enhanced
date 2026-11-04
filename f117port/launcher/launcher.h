@@ -29,6 +29,7 @@ private:
     void FillScales();
     void BrowseFolder();
     void BrowseProgram();
+    void BrowseMacArt();
     GameOptions Options() const;
     void Play();
     void About();
@@ -54,6 +55,9 @@ private:
     wxCheckBox* smooth_ = nullptr;
     wxCheckBox* night_ = nullptr;
     wxCheckBox* classic_ = nullptr;
+    wxStaticText* macLabel_ = nullptr;
+    wxTextCtrl* macArt_ = nullptr;
+    wxButton* macBrowse_ = nullptr;
     wxButton* play_ = nullptr;
     keys::Bindings bindings_;  // the game's keys (Key Bindings...), saved with the other options
     bool loading_ = true;  // no edits are recorded while the window is built
