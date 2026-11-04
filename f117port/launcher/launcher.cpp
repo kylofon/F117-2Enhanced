@@ -186,6 +186,10 @@ LauncherDialog::LauncherDialog()
     night_ = new wxCheckBox(eb, wxID_ANY, "True &night");
     night_->SetToolTip("Makes night flights really dark: a near black sky and ground and objects fading into the dark with distance.");
     enhBox->Add(night_, 0, wxLEFT | wxRIGHT | wxTOP, gap);
+    macCockpit_ = new wxCheckBox(eb, wxID_ANY, "Mac &cockpit");
+    macCockpit_->SetToolTip("The cockpit and side views of the Mac release, from the Mac art folder below.");
+    enhBox->Add(macCockpit_, 0, wxLEFT | wxRIGHT | wxTOP, gap);
+    macCockpit_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { UpdateEnhanced(); });
     auto* macGrid = new wxFlexGridSizer(2, gap, gap);
     macGrid->AddGrowableCol(1);
     macArt_ = PathRow(eb, macGrid, "&Mac art folder:",
@@ -245,6 +249,7 @@ LauncherDialog::LauncherDialog()
     night_->SetValue(settings::GetInt(SECTION, "TrueNight", 0) != 0);
     classic_->SetValue(settings::GetInt(SECTION, "Classic", 0) != 0);
     macArt_->ChangeValue(settings::GetString(SECTION, "MacArt", ""));
+    macCockpit_->SetValue(settings::GetInt(SECTION, "MacCockpit", macArt_->GetValue().empty() ? 0 : 1) != 0);
     UpdateEnhanced();
     bindings_ = keys::Load();
     loading_ = false;
@@ -273,8 +278,10 @@ void LauncherDialog::FillScales() {
 
 void LauncherDialog::UpdateEnhanced() {
     const bool on = !classic_->GetValue();
-    for (wxWindow* w : std::initializer_list<wxWindow*>{renderLabel_, renderScale_, frameLabel_, frameRate_, wide_, smooth_, night_, macLabel_, macArt_, macBrowse_})
+    for (wxWindow* w : std::initializer_list<wxWindow*>{renderLabel_, renderScale_, frameLabel_, frameRate_, wide_, smooth_, night_, macCockpit_})
         w->Enable(on);
+    const bool mac = on && macCockpit_->GetValue();
+    for (wxWindow* w : std::initializer_list<wxWindow*>{macLabel_, macArt_, macBrowse_}) w->Enable(mac);
 }
 
 void LauncherDialog::UpdateState() {
@@ -339,7 +346,7 @@ GameOptions LauncherDialog::Options() const {
     options.wide = wide_->GetValue();
     options.smoothShading = smooth_->GetValue();
     options.trueNight = night_->GetValue();
-    {
+    if (macCockpit_->GetValue()) {
         const wxString mac = macArt_->GetValue().Strip(wxString::both);
         if (!mac.empty()) options.macArt = wxFileName::DirName(mac).GetPath();
     }
@@ -380,6 +387,7 @@ void LauncherDialog::Save() {
     settings::SetInt(SECTION, "TrueNight", night_->GetValue() ? 1 : 0);
     settings::SetInt(SECTION, "Classic", classic_->GetValue() ? 1 : 0);
     settings::SetString(SECTION, "MacArt", macArt_->GetValue().Strip(wxString::both));
+    settings::SetInt(SECTION, "MacCockpit", macCockpit_->GetValue() ? 1 : 0);
     settings::SaveWindowPosition(SECTION, this);
 }
 

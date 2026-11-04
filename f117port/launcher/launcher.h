@@ -55,6 +55,7 @@ private:
     wxCheckBox* smooth_ = nullptr;
     wxCheckBox* night_ = nullptr;
     wxCheckBox* classic_ = nullptr;
+    wxCheckBox* macCockpit_ = nullptr;
     wxStaticText* macLabel_ = nullptr;
     wxTextCtrl* macArt_ = nullptr;
     wxButton* macBrowse_ = nullptr;

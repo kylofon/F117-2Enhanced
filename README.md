@@ -62,7 +62,7 @@ python tools/mac_art.py "F117a Stealth Fighter.sit" "C:/Games/F117 Mac art"
 
 The source is a classic StuffIt archive of the Mac release, the `F117a Art` resource fork (`F117a Art.rsrc` as written by an
 unstuffer, or `F117a Art/..namedfork/rsrc` on a Mac), or a folder holding either. Then start the game with
-`--mac-art "C:/Games/F117 Mac art"` or choose the folder as **Mac art folder** in the launcher. A missing folder or picture
+`--mac-art "C:/Games/F117 Mac art"` or tick **Mac cockpit** in the launcher and choose the folder as **Mac art folder**. A missing folder or picture
 leaves the PC art (the reason is in `f117.log`). The Mac front cockpit needs the wide view (on by default).
 
 ## Building
