@@ -937,6 +937,7 @@ the second compose phase (`enh_canvas.c`). `--classic` / no `--mac-art`: none of
   over the world), so the glass shows the wide picture's world there, not the strip.
 * Readouts: a PC pixel is the digits' ink when brighter than the middle of the field's darkest and brightest colour (the PC digit cells have their own
   dark background); ink in the Mac field's brightest colour, the rest in its most frequent one (the Mac's printed "000" is covered).
+* Review fixes (2026-11-04): the hole ends at the frame bottom (`hole_y1`; the Mac canvas has rows below the frame); only the present paths get the Mac overlay (`mac_ok`), not the test aids (`--hr-check`, the probe); the FIT overlay needs the layers; MFD sampling stays inside the source rect.
 * Measured (headless, attack pose, 1280x960 window, canvas 1536 x 960 at N = 2): no cyan shown, no black in the windows once the wide picture exists (the first
   frame after the view switch: 5 %); the side / rear views unchanged against S7.2 (0 differences by day).
 

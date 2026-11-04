@@ -467,7 +467,7 @@ void enh_flip(unsigned bytes)
  * (frame px: the 3D window of its main pass) and everywhere outside the frame, its vector layer outside the frame; cls (test aid): per canvas pixel what it shows */
 typedef struct { const Shadow *sh; const u16 *l3, *lv; const u16 *l3h, *lvh; int hx0, hy0, hx1, hy1; u8 *cls; bool blend;
                  const u8 *n3, *n3h; u8 *ndo;
-                 const MacPic *mac; const u8 *mac_pg; int mac_h; u32 mac_f[3]; bool mac_front; } ComposeSrc;   /* S7.4: mac_front = the Mac front cockpit (mac_front_rows) */   /* S7.2: the Mac picture over a side / rear view (mac_rows) */   /* ndo (test aid): per canvas pixel the night value the 3D pixel had (0 = none / not 3D) */   /* blend: S3.5, pal is a real palette; n3 / n3h: S3.6, the night planes of l3 / l3h (NULL = none) */
+                 const MacPic *mac; const u8 *mac_pg; int mac_h; u32 mac_f[3]; bool mac_front; bool mac_ok; } ComposeSrc;   /* S7.4: mac_front = the Mac front cockpit (mac_front_rows) */   /* S7.2: the Mac picture over a side / rear view (mac_rows) */   /* ndo (test aid): per canvas pixel the night value the 3D pixel had (0 = none / not 3D) */   /* blend: S3.5, pal is a real palette; n3 / n3h: S3.6, the night planes of l3 / l3h (NULL = none) */
 
 /* S3.5 (DESIGN 2.11): a 3D layer pixel; with a blend code (bits 10..15, --smooth-shading only) the mix of its colour and the neighbour entry of the same 16-entry ramp */
 static inline u32 l3_rgb(const u32 *pal, u16 l, bool blend)
@@ -633,7 +633,7 @@ static void mac_setup(ComposeSrc *cs, const u32 *pal)
     if (menu_on || !enh_mac_on()) return;
     const int mode = DSW(0x2E48);
     const bool front = view == ENH_VIEW_FRONT && enh_cv.mac && mode == 0 && layer_px;   /* S7.4: the first cockpit view with the Mac placement */
-    if (view != ENH_VIEW_FIT && !front) return;
+    if ((view != ENH_VIEW_FIT || !layer_px) && !front) return;       /* the FIT overlay reads the 3D layer */
     const MacPic *m = front ? enh_mac_pic(MAC_FRONT) : enh_mac_view_pic(mode);
     const u16 seg = video_page_seg(2);
     if (!m || !seg) return;
@@ -694,12 +694,13 @@ static const MacFront *mac_front_tables(const MacPic *m)
         const MacEl *el = &enh_mac_front_els[e];
         u32 cnt[256] = { 0 };
         u8 best = 0, hi = 0;
+        bool have_hi = false;
         for (int y = el->my0; y <= el->my1; y++)
             for (int x = el->mx0; x <= el->mx1; x++) {
                 const u8 c = m->pix[y * 640 + x];
                 mf->code[y * 640 + x] = (u8)(1 + e);
                 if (++cnt[c] > cnt[best]) best = c;
-                if (!m->key[c] && lum(m->rgb[c]) > lum(m->rgb[hi])) hi = c;
+                if (!m->key[c] && (!have_hi || lum(m->rgb[c]) > lum(m->rgb[hi]))) { hi = c; have_hi = true; }
             }
         mf->bg[e] = m->rgb[best]; mf->ink[e] = m->rgb[hi];
     }
@@ -779,7 +780,9 @@ static void mac_front_rows(const ComposeJob *job, const u32 *scratch, int ylo, i
             const double sxf = el->sx0 + tx * (el->sx1 + 1 - el->sx0), syf = el->sy0 + ty * (el->sy1 + 1 - el->sy0);
             if (el->kind == MAC_EL_DISPLAY) {
                 if (!key) { o[x] = mac_shade(m->rgb[c], cs->mac_f); continue; }
-                int sx = fx + (int)(sxf * n), sy = fy + (int)(syf * n);
+                const double sxc = sxf < el->sx0 ? el->sx0 : sxf >= el->sx1 + 1 ? el->sx1 + 0.999 : sxf;   /* inside the source rect */
+                const double syc = syf < el->sy0 ? el->sy0 : syf >= el->sy1 + 1 ? el->sy1 + 0.999 : syf;
+                int sx = fx + (int)(sxc * n), sy = fy + (int)(syc * n);
                 sx = sx < 0 ? 0 : sx >= lw ? lw - 1 : sx; sy = sy < 0 ? 0 : sy >= lh ? lh - 1 : sy;
                 o[x] = scratch[(size_t)sy * lw + sx];
                 continue;
@@ -798,7 +801,7 @@ static void compose_canvas(u32 *out, const u8 *idx, const u16 *sidx, const u32 *
 {
     ComposeSrc mcs = *cs_in;                                          /* S7.2 */
     const ComposeSrc *cs = &mcs;
-    if (screen) mac_setup(&mcs, pal);
+    if (screen && cs_in->mac_ok) mac_setup(&mcs, pal);               /* the present paths only (compose_src, canonical), not the test aids */
     const int lw = enh_cv.lw, lh = enh_cv.lh;
     if (!screen) {
         memset(out, 0, (size_t)lw * (size_t)lh * sizeof(u32));
@@ -828,6 +831,7 @@ static void compose_src(ComposeSrc *cs, const Held *h)
     memset(cs, 0, sizeof *cs);
     cs->sh = sh_shown; cs->l3 = l3d_shown; cs->lv = lvec_shown;
     cs->blend = true;                                                 /* S3.5: the live DAC */
+    cs->mac_ok = true;                                                /* S7.2 */
     cs->n3 = l3n_shown;                                               /* S3.6 */
     if (h->valid && !menu_on && enh_canvas_extended() && h->cap >= layer_px && !memcmp(&h->cv, &enh_cv, sizeof enh_cv)) {
         cs->l3h = h->l3; cs->lvh = h->lv; cs->n3h = h->n3;
@@ -892,6 +896,7 @@ bool enh_compose_canonical(u32 *out, unsigned bytes)
     memset(&cs, 0, sizeof cs);
     cs.sh = sh; cs.l3 = l3d_work; cs.lv = lvec_work; cs.n3 = l3n_work;
     cs.blend = true;
+    cs.mac_ok = true;                                                 /* S7.2 */
     compose_canvas(out, idx, sidx, pal, screen, &cs);
     return true;
 }

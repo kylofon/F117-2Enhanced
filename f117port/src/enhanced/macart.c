@@ -22,7 +22,7 @@ static bool load(MacPic *p, const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f) return false;
-    u8 hd[10];
+    u8 hd[10] = { 0 };
     bool ok = fread(hd, 1, 10, f) == 10 && !memcmp(hd, "MPIC", 4);
     int w = hd[4] | hd[5] << 8, h = hd[6] | hd[7] << 8, nc = hd[8] | hd[9] << 8;
     ok = ok && w > 0 && h > 0 && w <= 4096 && h <= 4096 && nc > 0 && nc <= 256;
