@@ -61,6 +61,21 @@ Needs CMake 3.24, a C11 compiler and SDL 3 (MSYS2 `mingw64`: `mingw-w64-x86_64-s
 `mingw-w64-x86_64-wxwidgets3.2-msw` for the launcher; `-DF117_LAUNCHER=OFF` skips it). The program is
 `f117port/build/f117-enhanced.exe`. Tests that need the game files skip themselves when `Game/` is missing.
 
+### macOS
+
+Builds natively with Homebrew. Tested on an Apple Silicon Mac (macOS 27, SDL 3.4); Intel Macs are untested.
+
+```bash
+tools/build_macos.sh /path/to/your/F-117      # installs sdl3, cmake, ninja if missing
+./play.command                                 # or: ./play.command --fullscreen --render-scale 4
+```
+
+The launcher is not built on macOS (`-DF117_LAUNCHER=OFF`); use the command-line options above.
+
+To make a double-clickable `F-117A Enhanced.app` (SDL3 bundled; asks for the game folder on first launch, Option-click to change it):
+`tools/make_macos_app.sh` (output in `release/`). Extra command-line options go in
+`~/Library/Application Support/F-117A Enhanced/options` (e.g. `--fullscreen --render-scale 4`).
+
 ## Launcher
 
 `f117-enhanced-launcher.exe` is the faithful port's launcher (game folder, window, speed, sound, key bindings)

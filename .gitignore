@@ -1,4 +1,5 @@
 # Original game files (not redistributable)
+/Game
 /Game/
 
 # Build output and copied binaries
@@ -15,3 +16,4 @@ __pycache__/
 
 # Junction to the faithful repo (unpacked original executables for the tests)
 /work/
+/play.command
