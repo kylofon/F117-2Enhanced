@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Game version check.** The game checks the release of its programs at start and with `--check`: another build (such as the GOG `VGAME.EXE` 473.04, which crashed at the first flight frame) stops with a clear message instead of crashing (README, "Supported game version"; issue #2). Also in the faithful port.
 - **macOS build.** The game builds and runs natively on Apple Silicon Macs with no source changes (Homebrew SDL 3; tested on macOS 27). `tools/build_macos.sh` builds it without the launcher and writes `play.command`; `tools/make_macos_app.sh` makes a double-clickable `F-117A Enhanced.app` with SDL 3 inside, which asks for the game folder on first launch. Intel Macs are untested.
 - **Fine terrain** (`--fine-terrain`, default on). Near the ground the coast and the land / sea edges of the distant terrain were drawn too low and moved in steps as the aircraft climbed (at the Libya start the hangars on the right stood in the water). The terrain now uses the exact height of the camera. Also in the original game. The horizon is no longer rounded to a whole row either, and a ground edge that runs behind the camera is cut at the right place, so the coast no longer creeps away and jumps back as you climb. `--no-fine-terrain` or `--classic` brings the original drawing back.
 

@@ -214,6 +214,81 @@ static bool c0_dgroup(const ExeFile *e, u16 *rel)
     return false;
 }
 
+/* ------------------------------------------------------------------ the build check */
+
+/* The release the port was made from (the 1991 MicroProse DOS release of F-117A 2.0, port/RE_GUIDE.md): the unpacked
+ * load image size (RE_GUIDE "Packers", tools/unlzexe.py) and the DGROUP paragraph of the c0 start-up (RE_GUIDE driver
+ * table) of each program. The port reads every program's data at that build's DGROUP offsets (gen/symbols_*.h), so
+ * another build would read and write the wrong data: it is refused with a message instead (issue #2: the GOG VGAME.EXE
+ * 473.04 has a 163 004-byte image with DGROUP 1E42 and crashed at the first flight frame). */
+static const struct { u32 image_len; u16 dgroup; } exe_builds[PROG_COUNT] = {
+    [PROG_SETUP]    = {  13437, 0x024C },
+    [PROG_MPS_LOGO] = {  14721, 0x0332 },
+    [PROG_PLAYER]   = {  18455, 0x02A3 },
+    [PROG_START]    = {  89023, 0x0A95 },
+    [PROG_VGAME]    = { 162460, 0x1E23 },
+    [PROG_END]      = {  46039, 0x05FA },
+    [PROG_DSWAP]    = {  19495, 0x0225 },
+};
+
+/* VGAME: the first words of sin_tab at DS:2084 (port/notes/s36/spec_R11a.md 2.3, simflow.md Part 2 section 1:
+ * round(32768 sin(2 pi i / 256)), verified against the image). */
+#define EXE_SIN_TAB 0x2084
+static const s16 exe_vgame_sin[6] = { 0, 804, 1608, 2411, 3212, 4011 };
+
+bool exe_build_check(ProgId id, const ExeFile *e, char *msg, size_t n)
+{
+    u16 dg = 0;
+    bool have_dg = c0_dgroup(e, &dg);
+    bool ok = have_dg && e->image_len == exe_builds[id].image_len && dg == exe_builds[id].dgroup;
+    bool sin_ok = true;
+    if (ok && id == PROG_VGAME) {
+        size_t at = (size_t)dg * 16 + EXE_SIN_TAB;
+        for (int i = 0; i < 6; i++)
+            if (at + 2 * i + 2 > e->image_len || (s16)le16(e->image + at + 2 * i) != exe_vgame_sin[i]) sin_ok = false;
+        ok = sin_ok;
+    }
+    if (ok) {
+        if (msg && n) msg[0] = 0;
+        return true;
+    }
+    if (msg && n) {
+        char dgs[16];
+        if (have_dg) snprintf(dgs, sizeof dgs, "%04X", dg);
+        else snprintf(dgs, sizeof dgs, "not found");
+        snprintf(msg, n,
+                 "%s is a different release (load image %u bytes, DGROUP %s%s).\n"
+                 "This port supports the MicroProse DOS release of F-117A 2.0 it was made from "
+                 "(%s: load image %u bytes, DGROUP %04X); the GOG 473.04 VGAME.EXE is not supported yet.\n"
+                 "See README, \"Supported game version\".",
+                 prog_table[id].exe, (unsigned)e->image_len, dgs, sin_ok ? "" : ", different sine table at DS:2084",
+                 prog_table[id].exe, (unsigned)exe_builds[id].image_len, exe_builds[id].dgroup);
+    }
+    return false;
+}
+
+const char *game_build_problem(void)
+{
+    static char msg[512];
+    for (int id = 0; id < PROG_COUNT; id++) {
+        size_t len;
+        u8 *file = read_game_file(prog_table[id].exe, &len);
+        if (!file) continue;                               /* a missing file is game_files_missing()'s message */
+        ExeFile e;
+        bool parsed = exe_parse(file, len, &e);
+        free(file);
+        if (!parsed) {
+            snprintf(msg, sizeof msg, "%s is not a DOS program this port can read (not an MZ / LZEXE 0.91 file).\n"
+                     "See README, \"Supported game version\".", prog_table[id].exe);
+            return msg;
+        }
+        bool ok = exe_build_check((ProgId)id, &e, msg, sizeof msg);
+        exe_free(&e);
+        if (!ok) return msg;
+    }
+    return NULL;
+}
+
 bool prog_image_load(ProgId id, const char *tail, ProgImage *out)
 {
     size_t len;
@@ -223,6 +298,8 @@ bool prog_image_load(ProgId id, const char *tail, ProgImage *out)
     bool ok = exe_parse(file, len, &e);
     free(file);
     if (!ok) return false;
+    char why[512];
+    if (!exe_build_check(id, &e, why, sizeof why)) { exe_free(&e); host_fatal("%s", why); }   /* issue #2: never run another build */
 
     /* The block DOS gives a small-model program: PSP, image, and DGROUP up to 64 KB (c0 shrinks the block to
      * DGROUP + 1000h paragraphs at most, platform.md §2). */

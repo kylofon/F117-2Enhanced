@@ -23,6 +23,11 @@ typedef struct {
 
 bool exe_parse(const u8 *file, size_t len, ExeFile *out);   /* false: not an MZ / LZ91 file */
 void exe_free(ExeFile *e);
+/* The build check (issue #2): true if the program is the build the port was made from (load image size, DGROUP, and for
+ * VGAME the first sin_tab words); otherwise false and msg = the player's message. game_build_problem() runs it on the
+ * seven programs in the game folder: NULL = all supported (or missing: see game_files_missing), else the message. */
+bool exe_build_check(ProgId id, const ExeFile *e, char *msg, size_t n);
+const char *game_build_problem(void);
 
 /* A program loaded into mem[] the way DOS does: PSP, image at PSP+10h with relocations applied, DGROUP =
  * load segment + SS (small model), BSS zero, the stack model at the end of the stack area. */

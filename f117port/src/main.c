@@ -157,7 +157,14 @@ int main(int argc, char **argv)
             host_shutdown();
             return 1;
         }
-        printf("game folder %s: all files of the chain are present\n", host_game_dir());
+        const char *build = game_build_problem();          /* issue #2: another release of the programs */
+        if (build) {
+            fprintf(stderr, "f117: %s\n", build);
+            host_log_error("%s", build);
+            host_shutdown();
+            return 1;
+        }
+        printf("game folder %s: all files of the chain are present and of the supported release\n", host_game_dir());
         host_shutdown();
         return 0;
     }
@@ -234,6 +241,8 @@ int main(int argc, char **argv)
         const char *missing = game_files_missing();
         if (missing) host_fatal("Game file %s not found in %s.\nUse --game-dir to point at the original game folder.",
                                 missing, host_game_dir());
+        const char *build = game_build_problem();
+        if (build) host_fatal("%s", build);
     }
 
     if (chain) placeholder_init();   /* the stub chain only: the real programs read their own keys, the chain quits on their exit codes */

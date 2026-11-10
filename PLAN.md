@@ -23,6 +23,7 @@ remove it when it is done.
 | Task | What to do | For | Time |
 |---|---|---|---|
 | Get the GOG `VGAME.EXE` (S8.2) | Buy / download the GOG edition of F-117A (GOG updated it to 473.04, `VGAME.EXE` only) and copy its whole game folder to `C:\Coding\F117-2\Game-gog` (never committed). Also keep your own `VGAME.EXE` as it is. Tell the agent the folder is there | S8.2 | 15 min |
+| U2 (S8.1) | Rebuild, then `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --check --game-dir "C:\Coding\F117-2\Game"`: it must print "...present and of the supported release" and a normal start must work (if it reports "a different release", send me the message: the expected sizes come from the RE notes). Once you have the GOG folder: the same `--check` with `--game-dir "C:\Coding\F117-2\Game-gog"` and a start must give the "VGAME.EXE is a different release (load image 163004 bytes, DGROUP 1E42)..." message (box + `f117.log`), no crash | S8.1 | 5 min |
 | U1 (S4.1) | Run `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --game-dir "C:\Coding\F117-2\Game" --render-scale 4 --fps vsync`, fly a mission, then the same with `--fps off`. Look for: the own aircraft / camera motion and the horizon smooth (vs stepping at ~10 Hz with off), any judder or a hitch at regular intervals, objects (ground units, other aircraft) still stepping (expected until S4.2), the HUD ladder / horizon moving with the world, pause (Alt-P) and view switches (F1..F10, c) without black flashes, the latency feel of the controls. Also try `--true-night --smooth-shading` (expected: hardly smoother, too slow at N = 4) and `--render-scale 2` | S4.1 | 15 min |
 | U1 (S4.3) | Same build as U1 (S4.1), so do them together. Run `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --game-dir "C:\Coding\F117-2\Game" --render-scale 4 --fps vsync`, fly a mission in the first cockpit view, then the same with `--fps off`, then with `--fps vsync --smooth-shading --true-night` (a night mission). Look for: (1) smoothness: the horizon and the world glide with vsync and step at ~10 Hz with off; no hitch once per step (about 10 a second) and no other regular judder; (2) the fallback: with smooth shading + true night the motion is still even but at a lower rate (on your 164 Hz monitor about 41-55 pictures a second; on a 60 Hz one 30), not uneven; (3) no picture changes against S4.1 / `--fps off`: the same HUD, panel, MFDs, TV and map windows, the extended world beside the frame, no flicker, no black or stale strips, night shading the same. Also try `--fps 60` and `--fps 30`, and a 4:3 window or `--no-wide` (the views without extension) | S4.3 | 15 min |
 | U1 (S4.2) | Same build. Run `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --game-dir "C:\Coding\F117-2\Game" --render-scale 4 --fps vsync`, fly a mission with traffic and threats (taxi past the airbase traffic, fly over a SAM / radar site, get shot at, drop a bomb), then the same with `--fps off`. Look for: ground units, other aircraft, missiles, tracers, smoke and the falling wreck gliding (not stepping at ~10 Hz as with off); radar dishes turning smoothly; the HUD ladder, horizon, heading tape, target boxes and velocity vector moving with the world, locked to it (no lag or wobble against the ground); the delayed view (F-key cycle) and the target views smooth; no object jumping back, flickering or doubling when a missile is fired, a unit is destroyed or a view changes | S4.2 | 15 min |
@@ -37,7 +38,7 @@ remove it when it is done.
 - **Phase 4:** S4.1 (decouple sim and display, `--fps`) built, U1 pending; S4.3 (one render per refresh, budget, 30 Hz fallback) built, U1 pending.
 - **Phase 4 (cont.):** S4.2 (objects and HUD interpolated) built, U1 pending. S4.6 (map MFD smooth at display rate and scrolling continuously, user request) built, U1 pending.
 - **Phase 7 (Mac art, option):** planned 2026-11-03; S7.1 → S7.2 (side / rear views) first, S7.3 → S7.4 (front cockpit) after.
-- **Phase 8 (game versions, issue #2):** planned 2026-11-10; the GOG build crashes at the first flight frame (also `--classic`): the engine reads `VGAME.EXE`'s data at the offsets of one build. S8.1 → S8.2 (needs the GOG files, User to-do).
+- **Phase 8 (game versions, issue #2):** planned 2026-11-10; the GOG build crashes at the first flight frame (also `--classic`): the engine reads `VGAME.EXE`'s data at the offsets of one build. S8.1 done 2026-11-10 (build check, U2 pending) → S8.2 (needs the GOG files, User to-do).
 - **Next release (v0.3.0, S6.4):** Mac art (Phase 7), view distance (S7.6 / S7.7), the GOG build (Phase 8), the macOS build (PR #5, merged 2026-11-10).
 - **Next:** S4.4 (input and latency); S4.5 / S5.1 launcher work is separate. Your tasks: **User to-do** above (U1 of S4.1 and S4.3 together, U1 of S5.1).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
@@ -260,7 +261,7 @@ Several bugs in one message; one session then fixes them in a batch.
 ### Phase 8 — Game versions (issue #2, 2026-11-10)
 | Id | Task | Model | Size | Status |
 |---|---|---|---|---|
-| S8.1 | In `../F117-2` first, then here: identify the `VGAME.EXE` build (size + SHA-256 of the file and of the unpacked image) in `exe_load` and `--check`; an unknown build stops with a clear message ("unsupported VGAME.EXE build …; supported: …") instead of crashing; ctest with a patched image | S | S | |
+| S8.1 | In `../F117-2` first, then here: identify the `VGAME.EXE` build (size + SHA-256 of the file and of the unpacked image) in `exe_load` and `--check`; an unknown build stops with a clear message ("unsupported VGAME.EXE build …; supported: …") instead of crashing; ctest with a patched image | S | S | done 2026-11-10 · U2 pending |
 | S8.2 | Support the GOG build (473.04; needs the User to-do): diff the two unpacked images (code and DGROUP: `tools/x86dis.py`, the reporter's notes in issue #2: `sin_tab` 1 ulp different, DGROUP at paragraph 1E42h, divide fault in `fx_asin` at +44606h); per-build symbol tables (`gen/symbols_vgame.h` → one per build, chosen at load); the golden / chain ctests with both builds; port to this repo | O | L | |
 | S8.3 | macOS: `f117.log` to `~/Library/Logs/F-117A Enhanced/` (beside the program it breaks the .app signature; PR #5 note); `../F117-2` first | H | S | |
 
@@ -269,6 +270,13 @@ Notes:
   roster; `--check` passes. The faithful engine keeps each program's data at the DGROUP offsets of the build it was
   made from (`platform/exeload.c`, `startup.c`, `gen/symbols_vgame.h`) and does not check which build it loads, so a
   different `VGAME.EXE` reads and writes the wrong data. Reporter: Enyakk (minidump offered).
+- S8.1 (2026-11-10): faithful commit d12512c (`../F117-2` branch claude/determined-fermi-g574xb, PLAN S6.3) applied
+  unchanged (shared engine code, no `ENH:` mark; `--classic` = faithful). `exe_build_check()` (`platform/exeload.c`)
+  compares each unpacked program with the build the port was made from: load image size (RE_GUIDE "Packers") and the
+  c0 DGROUP paragraph (RE_GUIDE driver table), for VGAME also sin_tab[0..5] at DS:2084 = 0, 804, 1608, 2411, 3212, 4011
+  (spec_R11a 2.3, verified against the image). `game_build_problem()` runs it at start (host_fatal: f117.log + message
+  box) and in `--check`; `prog_image_load` refuses too. ctest `platform` (`test_builds`, synthetic MZ images). No SHA-256
+  (no game files in the session). U2: `--check` and a start with your own files (passes) and with the GOG files (message).
 
 ## Decisions
 (Settled answers from U3 go here, dated.)
