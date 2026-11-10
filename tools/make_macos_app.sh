@@ -31,22 +31,27 @@ if [ "$OPT" = "1" ] || [ ! -f "$GAME/VGAME.EXE" ]; then
   GAME="$(osascript -e 'POSIX path of (choose folder with prompt "Choose your F-117A Nighthawk 2.0 game folder (the one with VGAME.EXE):")' 2>/dev/null)" || exit 0
   GAME="${GAME%/}"; echo "$GAME" > "$CFG/gamedir"
 fi
-EXTRA=(); [ -f "$CFG/options" ] && read -r -a EXTRA < "$CFG/options"
+# options: shell words, so a path with spaces can be quoted ('/my dir/x'); it is the user's own file.
+EXTRA=(); [ -f "$CFG/options" ] && eval "EXTRA=( $(cat "$CFG/options") )"
 exec "$HERE/f117-enhanced" --game-dir "$GAME" "${EXTRA[@]}"
 S
 chmod +x "$C/MacOS/F-117A Enhanced"
 
-# Icon from the launcher's .ico (256 px).
-python3 - "$ROOT/f117port/launcher/app.ico" "$OUT/icon.iconset" <<'P'
-import sys, os
-from PIL import Image
-im = Image.open(sys.argv[1]); im.size = max(im.info.get("sizes", [im.size])); im = im.convert("RGBA")
-d = sys.argv[2]; os.makedirs(d, exist_ok=True)
-for s in (16, 32, 128, 256, 512):
-    im.resize((s, s), Image.LANCZOS).save(f"{d}/icon_{s}x{s}.png")
-    im.resize((s*2, s*2), Image.LANCZOS).save(f"{d}/icon_{s}x{s}@2x.png")
+# Icon from the launcher's .ico: its largest entry (a 256 px PNG), sized with sips (no Pillow needed).
+ICS="$OUT/icon.iconset"; mkdir -p "$ICS"
+python3 - "$ROOT/f117port/launcher/app.ico" "$ICS/src.png" <<'P'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+n = struct.unpack_from("<H", d, 4)[0]
+e = max((struct.unpack_from("<BBBBHHII", d, 6 + 16 * i) for i in range(n)), key=lambda t: t[0] or 256)
+open(sys.argv[2], "wb").write(d[e[7]:e[7] + e[6]])
 P
-iconutil -c icns "$OUT/icon.iconset" -o "$C/Resources/AppIcon.icns"; rm -rf "$OUT/icon.iconset"
+for s in 16 32 128 256 512; do
+  sips -z $s $s "$ICS/src.png" --out "$ICS/icon_${s}x${s}.png" >/dev/null
+  sips -z $((s*2)) $((s*2)) "$ICS/src.png" --out "$ICS/icon_${s}x${s}@2x.png" >/dev/null
+done
+rm "$ICS/src.png"
+iconutil -c icns "$ICS" -o "$C/Resources/AppIcon.icns"; rm -rf "$ICS"
 
 cat > "$C/Info.plist" <<P
 <?xml version="1.0" encoding="UTF-8"?>
