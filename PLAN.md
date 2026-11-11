@@ -36,7 +36,7 @@ remove it when it is done.
 - **Release:** v0.1.0 released 2026-10-26; v0.2.0 (smooth frames) released 2026-10-29 (S6.3, tag v0.2.0).
 - **Phase 4:** S4.1 (decouple sim and display, `--fps`) built, U1 pending; S4.3 (one render per refresh, budget, 30 Hz fallback) built, U1 pending.
 - **Phase 4 (cont.):** S4.2 (objects and HUD interpolated) built, U1 pending. S4.6 (map MFD smooth at display rate and scrolling continuously, user request) built, U1 pending.
-- **Phase 7 (Mac art, option):** S7.1 (tool, `--mac-art`) done; S7.2 (side / rear views) done (U1 OK); S7.3 (front cockpit design, DESIGN 7) done; S7.4 (front cockpit) done (U1 OK); S7.5 (launcher checkbox + folder row, README) built, U1 pending; Q7.1-Q7.6 answered (defaults). Branch `claude/phase7-mac-art-c01970`, not merged.
+- **Phase 7 (Mac art, option):** S7.1 (tool, `--mac-art`) done; S7.2 (side / rear views) done (U1 OK); S7.3 (front cockpit design, DESIGN 7) done; S7.4 (front cockpit) done (U1 OK); S7.5 (launcher checkbox + folder row, README) built, U1 pending; Q7.1-Q7.6 answered (defaults). Merged into main 2026-11-11.
 - **Next:** S4.4 (input and latency); S4.5 / S5.1 launcher work is separate. Your tasks: **User to-do** above (U1 of S4.1 and S4.3 together, U1 of S5.1).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
   (symptom, file, what was tried). Never carry an old transcript over.
