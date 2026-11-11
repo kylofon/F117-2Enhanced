@@ -9,7 +9,7 @@ fonts, sprites, palettes and 3D models are used as they are; what changes is how
 graphics are rasterised (at a multiple of 320x200) and how often frames are drawn (display rate instead of the
 original's one frame per sim step), and the 3D view can be wider and taller than the original: the cockpit art stays
 in place, unchanged, and the world is simply shown further to the left, right and above it (Decisions 2026-10-19).
-A longer view distance would change what the original shows and is parked.
+A longer view distance would change what the original shows: it comes only as a drawing option (S8.2, Decision 2026-11-11).
 
 Token efficiency is a first-class goal: small subtasks, one session each, the cheapest model that can
 do the job, and the user doing what is cheap for a human (looking at pictures, playing).
@@ -37,6 +37,7 @@ remove it when it is done.
 - **Phase 4:** S4.1 (decouple sim and display, `--fps`) built, U1 pending; S4.3 (one render per refresh, budget, 30 Hz fallback) built, U1 pending.
 - **Phase 4 (cont.):** S4.2 (objects and HUD interpolated) built, U1 pending. S4.6 (map MFD smooth at display rate and scrolling continuously, user request) built, U1 pending.
 - **Phase 7 (Mac art, option):** S7.1 (tool, `--mac-art`) done; S7.2 (side / rear views) done (U1 OK); S7.3 (front cockpit design, DESIGN 7) done; S7.4 (front cockpit) done (U1 OK); S7.5 (launcher checkbox + folder row, README) built, U1 pending; Q7.1-Q7.6 answered (defaults). Merged into main 2026-11-11.
+- **Phase 8 (v0.3.0, user reports):** planned 2026-11-11: S8.1 (GOG files, after `../F117-2` S7.1 / S7.2), S8.2 (longer drawing distance, option), S8.3 (release).
 - **Next:** S4.4 (input and latency); S4.5 / S5.1 launcher work is separate. Your tasks: **User to-do** above (U1 of S4.1 and S4.3 together, U1 of S5.1).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
   (symptom, file, what was tried). Never carry an old transcript over.
@@ -225,6 +226,20 @@ Notes:
   512x323 (layouts differ from the PC 320x200 ones), 6 FLC movies at 512x384 (`F117a Movies`), 33 sampled sounds
   (speech callouts, music, engine; `F117a Sound`, 7.4–11 kHz 8-bit).
 
+### Phase 8 — v0.3.0: user reports (GitHub issues, 2026-11-10)
+| Id | Task | Model | Size | Status |
+|---|---|---|---|---|
+| S8.1 | GOG files (issue #2, crash at the first flight frame with the GOG `VGAME.EXE`): port `../F117-2` S7.1 (build detection, a clear message in the game, `--check` and the launcher's status line instead of a crash) and S7.2 (the GOG build supported) once they are done there; `--classic` and the Enhanced hooks work on both builds | S | M | |
+| S8.2 | Longer drawing distance (issue #3, option, default off, launcher switch; `--classic` = the original): buildings and ground objects drawn further away, the ground dots shown from higher altitude. Drawing only: the detection, AI and weapon ranges and every sim table stay as they are (the sandboxed display pass, S2.4, and the S3.4 B85D range / terrain-cell widening are the starting points) | O | M | |
+| S8.3 | v0.3.0: CHANGELOG, README, versions, zip (`tools/make_release.py`); draft the replies to issues #1, #2, #3 for the user to post | H | S | |
+
+Notes:
+- 2026-11-11: open issues at github.com/kylofon/F117-2Enhanced: #1 cockpit cut off on wide screens (answered by Phase 7,
+  the Mac cockpit), #2 crash with the GOG files (Enyakk's analysis in the issue: `fx_asin` divide by zero at VGAME
+  +0x44606, the GOG `VGAME.EXE` is LZ91-packed, its `sin_tab` at DS:2084 differs by 1 from the reference build; the port
+  reads the data at the reference build's offsets), #3 longer drawing distance. The owner's replies promise all three
+  for v0.3.0.
+
 ## User tasks
 
 ### U1 — Visual checks (when an agent asks)
@@ -255,6 +270,10 @@ Several bugs in one message; one session then fixes them in a batch.
 
 ## Decisions
 (Settled answers from U3 go here, dated.)
+- 2026-11-11, user reports (issue #3): the longer view distance is no longer parked. It becomes S8.2, an option (default
+  off, launcher switch) that only draws buildings, ground objects and ground dots further away; the simulation's ranges
+  are unchanged and `--classic` keeps the original distance. Issue #2 (GOG files) is an engine fix: `../F117-2` S7.1 /
+  S7.2 first, then S8.1 here.
 - 2026-11-04, U3 item 6 (Q7.1-Q7.6): the Mac front cockpit defaults of DESIGN.md 7.3 stay as built. The launcher gets a **Mac cockpit** checkbox (key `MacCockpit`) that turns `--mac-art` on and off; the folder is kept when it is off.
 - 2026-11-03, user request: the Mac release's cockpit and side-view pictures (640x480, original MicroProse art) as an
   **optional** enhancement (Phase 7), like the Amiga graphics in the user's Test Drive ports. Off by default; the user
@@ -287,7 +306,7 @@ Several bugs in one message; one session then fixes them in a batch.
   are not extended: the whole picture, art included, is scaled up to fill the wider window.
 
 ## TODO (parked)
-- [ ] Longer view distance (changes what the original shows; terrain/object tables).
+- [x] Longer view distance: taken as S8.2, a drawing-only option (Decision 2026-11-11).
 - [ ] Roland MT-32 (`RSOUND.117`; Munt, user ROMs) — faithful TODO, would be done in `../F117-2` first.
 
 ## Future mod (not this repo's goal)
