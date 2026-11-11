@@ -10,7 +10,7 @@ class wxButton;
 class wxCheckBox;
 class wxChoice;
 class wxSpinCtrl;
-class wxStaticBitmap;
+class wxGenericStaticBitmap;
 class wxStaticText;
 class wxTextCtrl;
 
@@ -40,7 +40,8 @@ private:
 
     wxTextCtrl* folder_ = nullptr;
     wxTextCtrl* program_ = nullptr;
-    wxStaticBitmap* statusIcon_ = nullptr;
+    wxGenericStaticBitmap* statusIcon_ = nullptr;  // a click opens MAC_FILES when the Mac art is what is missing
+    bool macWrong_ = false;
     wxStaticText* statusNote_ = nullptr;
     wxChoice* aspect_ = nullptr;
     wxChoice* scale_ = nullptr;

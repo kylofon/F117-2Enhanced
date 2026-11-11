@@ -54,7 +54,9 @@ f117-enhanced [--game-dir DIR] [--scale N] [--aspect 4:3|1:1] [--fullscreen] [--
 The Mac release of F-117A (2.x) drew its cockpit and its rear, left and right views as 640x480 pictures. If you own the Mac
 version, the game can use them instead of the PC pictures: the front cockpit with its own panel (the PC displays, lamps and
 readouts are shown in the Mac panel's places) and the looking-out views. Nothing of the Mac release is part of this
-project: point the game at your own copy. In the launcher tick **Mac cockpit** and choose the release's StuffIt archive as
+project: point the game at your own copy (the release is at the
+[Internet Archive](https://archive.org/details/f117a_stealth_fighter); while the Mac art is missing, clicking the
+launcher's warning sign opens that page). In the launcher tick **Mac cockpit** and choose the release's StuffIt archive as
 **Mac art** (e.g. `f117a_stealth_fighter.sit` or `F-117a_Stealth_Fighter_2.1.sit`; the update archives hold no pictures);
 on the command line, `--mac-art "C:/Games/f117a_stealth_fighter.sit"`. The pictures are read from the archive each start,
 nothing is written. Play stays greyed out while the archive has no cockpit pictures.
