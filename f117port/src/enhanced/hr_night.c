@@ -42,7 +42,7 @@ static bool lut_ready;
  * the far depth of the object being drawn (< 0 = none) and of the queued records, the lights condition */
 static struct { bool geo; double ax, ay, c0, f, fa; float obj; float queued[50]; u8 cond, light; } st;
 /* the window of the last night pass and its geometry, for the pixels written after its end (fix 2: hr_night_late) */
-static struct { bool valid; double ax, ay, c0, f, fa; s32 xmin, ymin, xmax, ymax, lw, lh; bool hole; s32 hole_x0, hole_x1, hole_y; } last;
+static struct { bool valid; double ax, ay, c0, f, fa; s32 xmin, ymin, xmax, ymax, lw, lh; bool hole; s32 hole_x0, hole_x1, hole_y, hole_y1; } last;
 static long late_px;
 
 void hr_night_regions(void (*add)(void *p, size_t n)) { add(&st, sizeof st); add(&last, sizeof last); add(&late_px, sizeof late_px); }
@@ -196,7 +196,7 @@ void hr_night_pass_end(void)
     last.valid = true;
     last.ax = st.ax; last.ay = st.ay; last.c0 = st.c0; last.f = st.f; last.fa = st.fa;
     last.xmin = enh_hr.xmin; last.ymin = enh_hr.ymin; last.xmax = enh_hr.xmax; last.ymax = enh_hr.ymax; last.lw = enh_hr.lw; last.lh = enh_hr.lh;
-    last.hole = enh_hr.hole; last.hole_x0 = enh_hr.hole_x0; last.hole_x1 = enh_hr.hole_x1; last.hole_y = enh_hr.hole_y;
+    last.hole = enh_hr.hole; last.hole_x0 = enh_hr.hole_x0; last.hole_x1 = enh_hr.hole_x1; last.hole_y = enh_hr.hole_y; last.hole_y1 = enh_hr.hole_y1;
 }
 
 /* fix 2: the 3D layer pixels of the last night window written after its pass ended (1x writes of the overlay pass and the rest of the frame that the hr back
@@ -213,7 +213,7 @@ static void late_rows(void *jp, int lo, int hi)
         const u16 *lrow = j->lay + (size_t)y * last.lw;
         for (s32 x = last.xmin < 0 ? 0 : last.xmin; x <= last.xmax && x < last.lw; x++) {
             if (nrow[x] || !(lrow[x] & 0x100)) continue;
-            if (last.hole && y >= last.hole_y && x >= last.hole_x0 && x <= last.hole_x1) continue;
+            if (last.hole && y >= last.hole_y && y < last.hole_y1 && x >= last.hole_x0 && x <= last.hole_x1) continue;
             nrow[x] = pixel_nd(x, y);
             n++;
         }

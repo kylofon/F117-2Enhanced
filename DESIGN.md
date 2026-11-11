@@ -847,3 +847,106 @@ Plan changes (applied to PLAN.md, ids kept): the wider view needs the sandboxed 
 becomes its own foundation **S2.4 (O, M)**; S4.1 shrinks to the loop, alpha and the own-aircraft/camera lerp (**O, M**, was L);
 S2.3 gains the reference-rasteriser test (**S, M**, was H, S); S3.1 is routing + sprites/dots/tracers + all view modes on a
 finished back end (**S, M**, was O); S3.2 is mostly verification (**S, S**); S3.4 depends on S2.4.
+
+## 7 Mac art (Phase 7, option `--mac-art DIR`, default off)
+
+The Mac release (2.x) has the cockpit and the looking-out views as 640x480 pictures (MicroProse's own art, 128 colours, pure cyan = see-through).
+`tools/mac_art.py` converts the user's own copy (`.sit` archive or the `F117a Art` resource fork) into `<Name>.mpic` (uncompressed indexed) plus
+`rects.json`; `enhanced/macart.c` loads them (`--mac-art DIR`; a missing folder or picture = the PC art and one log line; `--classic` and
+`F117_CLASSIC` ignore it). Nothing changes in the sim, the 1x page or the DAC: the Mac picture is a layer of the compositor.
+
+### 7.1 Left, right, rear (S7.2, as built)
+* View FIT (C07A 0x41..0x43, `[2E48]` = the picture in page 2): the frame is composed as before, then `mac_rows` puts the Mac picture over the frame,
+  640x480 on 320x200 (the same 4:3 picture; nearest sampling at the canvas pixel's place). Opaque Mac pixels show in their own colours; cyan pixels show
+  the composition, except where that is the PC cabin art (the shown page pixel equals the picture in page 2, inside the 3D window rows 0..156 / 0..160):
+  there the 3D layer (night plane applied). Text and 1x pixels over the window stay. The Mac windows (rects.json: left x 2..639 rows 0..286, right
+  0..637 / 0..272, rear 0..237 and 381..639 / 0..330) lie inside the PC 3D windows (rows 0..160 / 0..156 = Mac rows 0..386 / 0..377).
+* Night: per channel, the PC cabin art's colours (the page-2 histogram) in the live DAC over the same colours in the brightest of the three flight
+  palettes (DS:164A, 194A, 1C4A); the Mac pixels times that factor. By day exactly 1 (headless: the art equal to the Mac picture, 0 differences); in a
+  night mission ~0.6 (with the PC art's tint).
+
+### 7.2 Front cockpit (S7.4): layout
+`CockpitOff` (the panel with every lamp off) replaces the first cockpit view (view 0, `[294B]` = 0). Measured cyan regions: two canopy side windows
+(0,0)-(206,326) and (433,0)-(639,325), a strip (258,0)-(381,7), the **HUD glass** (237,9)-(402,175), the **centre display** (247,271)-(392,414) 146x144,
+the **right display** (429,300)-(528,398) 100x99, the **ADI ball** (135,325)-(188,378) 54x54 (a circle inside the left instrument's art).
+
+**Placement (canvas).** The canvas is the Mac picture at `kx = 1.2N` layer px per Mac px across and `ky = N` down (4:3 pixel aspect; `1.2N` with square
+pixels): 768N x 480N, N = `--render-scale` or `ceil(Lh / 480)`; the host scales it to the window height (black at the sides, as FIT). The 320x200 frame is
+placed at `fx = 224N`, `fy = 66 ky`: frame x -> Mac `319.5 + (x - 159.5) / 1.2`, frame row y -> Mac row `66 + y` (4:3). So the HUD (frame x ~70..250,
+rows 0..90) is ~150 Mac px wide in the 165 px glass, on rows 66..156 of the glass (9..175); the projection centre (159, 52) at Mac (320, 118). The world
+scale follows the HUD (it must, or the HUD would not match the world): ~112 degrees across the picture against the PC's 64 across its frame (**Q7.1**).
+The view is extended (`ENH_VIEW_FRONT` with this geometry): the wide display pass draws the world over the whole canvas, as in section 3.
+
+**The hole** of the wide pass (`HrCtx.hole`, 3.5) is only the MFD windows' columns (frame x 74..245, rows from 110 down), not the panel's full width from
+row 91: frame x 0..73 and 246..319 below row 91 fall in the Mac canopy side windows (Mac x 186..206 and 433..452) and need the world; the hole's columns
+(Mac x 248..391) are under the Mac panel art.
+
+**Compose (two phases).** (1) The usual composition into a scratch canvas (the frame with its HUD, panel and MFD layers; the wide picture around it).
+(2) The output: per canvas pixel the Mac pixel at `(x / kx, y / ky)`:
+* opaque -> its colour times the night factor (7.1; the histogram of 256PIT's panel rows 91..199 in page 2);
+* HUD glass -> the scratch pixel (world and HUD);
+* another canopy window -> the world alone: the wide picture's 3D layer (and its vector layer: tracers), so the HUD is clipped to the glass; the scratch
+  pixel when there is no wide picture (the one frame of a view switch);
+* a display or the ADI ball -> the remapped PC element (below), scaled from the scratch canvas (nearest), the cyan shape as the mask.
+
+**Remapped elements** (source = frame rect, scaled from the scratch canvas; destination = Mac rect):
+
+| PC element (frame rect) | Mac destination |
+|---|---|
+| left MFD, map / scope (74,110)-(150,169) | centre display (247,271)-(392,414), stretched (**Q7.2**) |
+| right MFD, TV / nav / weapons / objectives (169,110)-(245,169) | right display (429,300)-(528,398), stretched |
+| ADI horizon (265,140)-(296,167) | ADI ball (135,325)-(188,378), the cyan circle as the mask |
+| fuel digits (261,179)-(274,185) | FUEL field (470,251)-(495,263) |
+| throttle digits (261,191)-(274,197) | THRUST field (470,269)-(495,281) |
+| chaff / flare / decoy counts (35,149)-(43,155), (35,159)-(43,165), (35,169)-(43,175) | CHAFF / FLARE / DECOY fields (158,426)-(176,436), (158,443)-(176,453), (158,460)-(176,470) |
+
+The digits keep the PC font (scaled ~2x); the Mac's own font (`AlphaNum640`) would need the values, not the pixels (later, **Q7.4**).
+
+**Lamps.** A PC lamp is lit when its rect in the shown page differs from 256PIT as loaded (a copy of page 2 taken by a hook after `pic_show("256pit.pic", 2)`)
+in at least a quarter of its pixels (covers every driver, blinking included). A lit lamp shows its Mac lamp brightened (each channel x 2.2, clamped: the
+dim label and lens become the lit colour of the same hue); an unlit one the Mac art as it is. Mapping (PC lamp -> Mac lamp; the Mac rects are the label's
+box padded to the lens):
+
+| PC lamp (rect) | Mac lamp |
+|---|---|
+| target mode 0 / 1 / 2 (119,94) (139,94) (159,94) | NAV / AIR / GND (240..352, 233..247) |
+| 3 seeker lock (184,94)-(205,102) | LOCK (362,233)-(398,247) |
+| 4 stall (38,105)-(62,113) | STALL (172,250)-(217,264) |
+| 32 autopilot (257,113), 34 gear (257,123), 33 key-9 device (284,113), 35 brakes (284,123), 31 bay doors (257,103) | AUTO, GEAR, FLAPS, BRAKE, BAY |
+| 0 radar / SAM lock (4,191), 1 IR missile (24,191), 21 threat (44,191) | RAD, IR, TRAN (**Q7.3**) |
+| 17 chaff mode (4,179), 18 jammer countdown (36,179) | ECM, IRJ (**Q7.3**) |
+| 22 / 23 left MFD map / scope (80,173) (100,173) | MAP / TAC |
+| 28 nav, 26 weapons, 29 objectives, 30 TV (right MFD pages) | NAV, WPN, ORD, FLIR (right column) |
+| damage 5, 6, 7, 12, 11 (bits 0..4 of `[3632]`) | NW, FC, FIRE, BD, ENG in that order (**Q7.3**) |
+| 16 store 3 active (51,169) | the lamp right of the DECOY count |
+
+No Mac place: lamp 25 (F6), lamp 27 (the TV label box), lamp 36, the weapons page's sprite frame. Mac only, left as art: JAM, FUEL, AV, TC, AHEAD, the
+EMV / EGR / EAR bars, the unlabeled lamps.
+
+**Other views.** The second cockpit view (`c`, `[294B]` = 1) keeps the PC picture (the Mac has no second cockpit picture; `CockpitSmall` is the same
+cockpit at 512x384) (**Q7.5**). The external views have no cockpit art. View switches: the placement change goes through `enh_canvas_frame_view` as now.
+
+**Hooks:** the geometry (`enh_canvas_geometry`, FRONT with the Mac picture), the hole (`hr_pass.c`), the 256PIT copy (`sim_view.c`, `sim_main.c`),
+the second compose phase (`enh_canvas.c`). `--classic` / no `--mac-art`: none of them acts.
+
+### 7.4 As built (S7.4)
+* Built as 7.2 with its defaults (`enh_canvas_geometry`: `EnhCanvas.mac` 1 = 4:3, 2 = square pixels; `hr_pass.c`: the hole; `enh_canvas.c`:
+  `mac_front_tables` (per Mac pixel: glass, element or none), `mac_front_setup` (lamps, readout thresholds), `mac_front_rows`; `macart.c`: the element table
+  and the 256PIT copy). Needs the wide view: with `--no-wide` the first cockpit view keeps the PC picture.
+* The frame's 3D window for the glass rule is always rows 0..90: with Alt-C (`[2DFC]`, the 107-row window) rows 91..106 are the PC panel's edge strip (art
+  over the world), so the glass shows the wide picture's world there, not the strip.
+* Readouts: a PC pixel is the digits' ink when brighter than the middle of the field's darkest and brightest colour (the PC digit cells have their own
+  dark background); ink in the Mac field's brightest colour, the rest in its most frequent one (the Mac's printed "000" is covered).
+* Review fixes (2026-11-04): the hole ends at the frame bottom (`hole_y1`; the Mac canvas has rows below the frame); only the present paths get the Mac overlay (`mac_ok`), not the test aids (`--hr-check`, the probe); the FIT overlay needs the layers; MFD sampling stays inside the source rect.
+* Measured (headless, attack pose, 1280x960 window, canvas 1536 x 960 at N = 2): no cyan shown, no black in the windows once the wide picture exists (the first
+  frame after the view switch: 5 %); the side / rear views unchanged against S7.2 (0 differences by day).
+
+### 7.3 Questions (defaults apply; also in PLAN.md U3)
+* Q7.1 HUD and world scale in the Mac front cockpit: default **the HUD fits the Mac HUD glass** (the world at 0.83 of the full-window scale: ~112 degrees
+  across the picture); alternative the PC's scale (the HUD larger than the glass, clipped by its frame; ~64 degrees across, as the PC view).
+* Q7.2 MFD aspect: the PC MFDs (77x60 at the 1.2 pixel aspect = 1.07:1) and the Mac displays (1.01:1) differ by 6 %: default **stretch to fill**;
+  alternatives letterbox, or a map MFD that shows more area (a later option). The MFD content is scaled ~2.3x from the frame's N (blockier than the rest).
+* Q7.3 lamp pairs whose meaning differs between the PC and Mac panels (threat, jammers, damage): defaults as in the table.
+* Q7.4 readouts: default the PC digits scaled into the Mac fields; alternative the Mac's 640 font drawn from the values.
+* Q7.5 the second cockpit view with `--mac-art`: default the PC picture; alternative the Mac front picture there too.
+* Q7.6 wide windows: default the Mac front picture fitted to the window height (black sides); alternative the world beside it.

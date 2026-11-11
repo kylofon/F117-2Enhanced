@@ -40,13 +40,33 @@ The errors the game reports go to `f117.log` beside the program.
 f117-enhanced [--game-dir DIR] [--scale N] [--aspect 4:3|1:1] [--fullscreen] [--frame-ticks N]
               [--keys NAME=CODE,...] [--check] [--version]
               [--classic] [--render-scale N] [--fps vsync|60|30|off] [--wide|--no-wide]
-              [--smooth-shading|--no-smooth-shading] [--true-night|--no-true-night]
+              [--smooth-shading|--no-smooth-shading] [--true-night|--no-true-night] [--mac-art FILE|DIR]
 ```
 
 * `--classic`: every enhancement off, whatever else is given. `--render-scale N`: 1 to 8 times 320x200 (default Auto).
 * `--fps vsync|60|30|off`: pictures a second (default vsync: the monitor's refresh).
 * `--wide` (default) / `--no-wide`; `--smooth-shading`, `--true-night`: off by default.
+* `--mac-art FILE|DIR`: the Mac cockpit pictures from your Mac release (below); off by default and with `--classic`.
 * The other options are the faithful port's; the remaining test options are listed at the top of `f117port/src/main.c`.
+
+## Mac cockpit art (optional)
+
+The Mac release of F-117A (2.x) drew its cockpit and its rear, left and right views as 640x480 pictures. If you own the Mac
+version, the game can use them instead of the PC pictures: the front cockpit with its own panel (the PC displays, lamps and
+readouts are shown in the Mac panel's places) and the looking-out views. Nothing of the Mac release is part of this
+project: point the game at your own copy. In the launcher tick **Mac cockpit** and choose the release's StuffIt archive as
+**Mac art** (e.g. `f117a_stealth_fighter.sit` or `F-117a_Stealth_Fighter_2.1.sit`; the update archives hold no pictures);
+on the command line, `--mac-art "C:/Games/f117a_stealth_fighter.sit"`. The pictures are read from the archive each start,
+nothing is written. Play stays greyed out while the archive has no cockpit pictures.
+
+`--mac-art` also takes the `F117a Art` resource fork (`F117a Art.rsrc` as written by an unstuffer, or
+`F117a Art/..namedfork/rsrc` on a Mac), or a folder of pictures converted once with the Python tool (Python 3):
+
+```bash
+python tools/mac_art.py "f117a_stealth_fighter.sit" "C:/Games/F117 Mac art"
+```
+
+A missing archive or picture leaves the PC art (the reason is in `f117.log`). The Mac front cockpit needs the wide view (on by default).
 
 ## Building
 

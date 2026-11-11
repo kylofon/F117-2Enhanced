@@ -10,7 +10,7 @@ typedef struct {
     int  render_scale;   /* --render-scale N: the frame is shown N x N (0 = the largest whole multiple that fits the window) */
     bool wide;           /* --wide (default on since S3.4) / --no-wide: the canvas follows the window's aspect; the front cockpit and the outside views show the world
                           * beyond the 320x200 frame (DESIGN 3), every other view is the whole picture fitted and centred */
-    int  compose_test;   /* --compose-test (1): headless check of the canvas geometry and the compositor; --wide-geometry-test (2, S3.4): the placement per view and window; --interp-test (3, S4.2) */
+    int  compose_test;   /* --compose-test (1): headless check of the canvas geometry and the compositor; --wide-geometry-test (2, S3.4): the placement per view and window; --interp-test (3, S4.2); --mac-art-test (4, S7.1) */
     bool dither_fine;    /* --dither fine: the 3D checkerboard per layer pixel; --dither grid (default): per original pixel (DESIGN 2.4, Q2) */
     bool hr_check;       /* --hr-check: the render test (--render-test) also checks the hr 3D layer against the 1x page (DIR/hr_check.txt) */
     char hr_dump[1024];  /* --hr-dump DIR (implies --hr-check): per render-test scenario DIR/<id>.hrd: the hr trace, the layer, the page (S2.3) */
@@ -28,6 +28,7 @@ typedef struct {
     int  fps_test;       /* --fps-test K (S4.1 test aid): K display passes per VGAME frame at alpha 1/K .. K/K, run at once (no clock), instead of the refresh timing */
     int  fps_check;      /* --fps-check (S4.3 test aid): every refresh is also built the S4.1 way (wide pass + main pass) and the two pictures compared */
     char fps_trace[1024];      /* --fps-trace FILE (S4.1 test aid): per display pass the frame, alpha, hold reason and the camera view_frame built (the jerk trace) */
+    char mac_art[1024];  /* --mac-art DIR (Phase 7, default none): the Mac release's cockpit pictures converted by tools/mac_art.py (macart.h); ignored with --classic */
     char mfd_probe[1024];      /* --mfd-probe PREFIX (S3.2 test aid): per page flip PREFIX.txt gets how much of the TV and map windows is shown from the 3D layer; F117_PROBE_FRAMES=a,b dumps those frames */
 } EnhOptions;
 

@@ -10,6 +10,7 @@
 #include "sim/sim.h"
 #include "sim/sim_priv.h"
 #include "sim/simtest.h"
+#include "enhanced/macart.h"   /* ENH: S7.4 */
 #include "enhanced/sandbox.h"   /* ENH: S2.4 */
 
 SimTest sim_test = { .frames_left = -1, .dive_at = -1, .select_at = -1 };
@@ -396,6 +397,7 @@ void sim_init(void)
     fill_rows_far(DSP(DSW(CTX_P0_PTR)), 0, 0, 0x13F, 0x5B);
     fill_rows_far(DSP(DSW(CTX_P1_PTR)), 0, 0, 0x13F, 0x5B);
     pic_show("256pit.PIC", 2);
+    enh_mac_pit_loaded();      /* ENH: S7.4, the lamps' off state */
     ordnance_panel_build();
     gfx_restore_rect(0, 0x5B, 0x140, 0x6D);
     cockpit_daynight_recolor();

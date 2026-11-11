@@ -21,6 +21,7 @@ typedef struct {
     int n;                 /* scale of the 320x200 frame */
     int fx, fy;            /* layer position of frame pixel (0,0) */
     int vx, vy, vw, vh;    /* the 3D viewport in layer pixels (the whole canvas in the extended views, else the frame) */
+    int mac;               /* S7.4: the Mac front cockpit placement (DESIGN 7.2): 0 = none, 1 = 4:3 pixel aspect (Mac row = y / N), 2 = square pixels (Mac row = y / 1.2N) */
 } EnhCanvas;
 
 /* The geometry of DESIGN 3.1 / 3.2. win = output size in pixels; aspect43 = pixel aspect 1.2 (the 4:3 option), else 1;

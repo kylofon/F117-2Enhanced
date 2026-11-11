@@ -33,12 +33,12 @@ typedef struct HrCtx {
      * 1001 window-relative points of the original window into the canvas window; the hole (the frame below the 3D window, where the panel is) is never written */
     bool wide, hole;
     s32 wx, wy, e2dx, e2dy;
-    s32 hole_x0, hole_x1, hole_y;
+    s32 hole_x0, hole_x1, hole_y, hole_y1;   /* S7.4: hole_y1 = the first row below the hole (the canvas height, or the frame bottom of the Mac placement) */
     u8 *night;                    /* S3.6: the night plane of a true-night pass (hr_night.c), NULL otherwise */
 } HrCtx;
 
 /* S3.4: the panel hole of a wide main pass */
-#define HR_IN_HOLE(x, y) (enh_hr.hole && (y) >= enh_hr.hole_y && (x) >= enh_hr.hole_x0 && (x) <= enh_hr.hole_x1)
+#define HR_IN_HOLE(x, y) (enh_hr.hole && (y) >= enh_hr.hole_y && (y) < enh_hr.hole_y1 && (x) >= enh_hr.hole_x0 && (x) <= enh_hr.hole_x1)
 
 extern HrCtx enh_hr;
 

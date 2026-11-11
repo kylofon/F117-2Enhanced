@@ -95,7 +95,7 @@ static inline int phase(s32 x, s32 y)
 static void span_run(s32 y, s32 l, s32 r, u8 al, u8 ah, bool dith, bool only_ah)
 {
     if (l > r) return;
-    if (enh_hr.hole && y >= enh_hr.hole_y && r >= enh_hr.hole_x0 && l <= enh_hr.hole_x1) {   /* S3.4: the panel hole is never written */
+    if (enh_hr.hole && y >= enh_hr.hole_y && y < enh_hr.hole_y1 && r >= enh_hr.hole_x0 && l <= enh_hr.hole_x1) {   /* S3.4: the panel hole is never written */
         span_run(y, l, enh_hr.hole_x0 - 1, al, ah, dith, only_ah);
         span_run(y, enh_hr.hole_x1 + 1, r, al, ah, dith, only_ah);
         return;
@@ -146,7 +146,7 @@ static void span_andor(s32 y, s32 l, s32 r, u8 al, bool is_and)
     const int n = enh_hr.n;
     const s32 py = fdiv(y - enh_hr.fy, n);
     const u8 *page = py >= 0 && py <= 199 ? seg_ptr(enh_hr.seg) + py * 320 : NULL;
-    const bool hole_row = enh_hr.hole && y >= enh_hr.hole_y;
+    const bool hole_row = enh_hr.hole && y >= enh_hr.hole_y && y < enh_hr.hole_y1;
     s32 px = fdiv(l - enh_hr.fx, n), k = (l - enh_hr.fx) - px * n;   /* the original pixel of x and x's place in it (0..n-1) */
     for (s32 x = l; x <= r; x++) {
         if (!(hole_row && x >= enh_hr.hole_x0 && x <= enh_hr.hole_x1)) {

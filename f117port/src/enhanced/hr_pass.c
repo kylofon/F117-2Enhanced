@@ -162,7 +162,9 @@ void enh_r3d_viewport(u16 vp)
         h->xmin = 0; h->ymin = 0; h->xmax = h->lw - 1; h->ymax = h->lh - 1;
         h->ox = 0; h->oy = 0; h->exmax = h->lw - 1; h->eymax = h->lh - 1;
         h->e2dx = h->wx; h->e2dy = h->wy;
-        if (y1 < 199) { h->hole = true; h->hole_x0 = h->fx; h->hole_x1 = h->fx + 320 * n - 1; h->hole_y = h->fy + n * (y1 + 1); }
+        if (y1 < 199) { h->hole = true; h->hole_x0 = h->fx; h->hole_x1 = h->fx + 320 * n - 1; h->hole_y = h->fy + n * (y1 + 1); h->hole_y1 = h->lh; }
+        if (h->hole && enh_cv.mac) { h->hole_x0 = h->fx + 74 * n; h->hole_x1 = h->fx + 246 * n - 1; h->hole_y = h->fy + 110 * n; h->hole_y1 = h->fy + 200 * n; }   /* S7.4 (DESIGN 7.2): only the MFD
+                                                                          * windows' columns from their top row: the rest of the panel lies under the Mac canopy windows */
         enh_wide_clear_outside();
     }
     h->line_w = n / 2 > 1 ? n / 2 : 1;
