@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Game version check.** The game checks the release of its programs at start and with `--check`: another build (such as the GOG `VGAME.EXE` 473.04, which crashed at the first flight frame) stops with a clear message instead of crashing (README, "Supported game version"; issue #2). Also in the faithful port.
+- **macOS build.** The game builds and runs natively on Apple Silicon Macs with no source changes (Homebrew SDL 3; tested on macOS 27). `tools/build_macos.sh` builds it without the launcher and writes `play.command`; `tools/make_macos_app.sh` makes a double-clickable `F-117A Enhanced.app` with SDL 3 inside, which asks for the game folder on first launch. Intel Macs are untested.
+
 ## 0.3.0 (2026-11-11)
 
 The Mac cockpit. If you own the Mac release, the game can show its 640x480 cockpit and side-view pictures

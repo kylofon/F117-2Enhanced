@@ -3,6 +3,7 @@
  * The reference numbers in selftest_vectors.h come from the ORIGINAL code under Unicorn (port/notes/s51/platform_emu.py). */
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "gen/module_platform.h"
@@ -427,6 +428,65 @@ static void test_exec(void)
     check(platform_exec(PROG_START, exec_ret, " x") == 33, "a program that returns n");
 }
 
+/* ------------------------------------------------------------------ the build check (issue #2) */
+
+/* A plain MZ file standing in for a program: c0's `mov di, dg; mov si,[2]` at the entry point (0:0), and VGAME's sin_tab
+ * head at DS:2084 (sin_bump is added to T[2]). */
+static u8 *fake_exe(u32 image_len, u16 dg, int sin_bump, size_t *len)
+{
+    *len = 0x20 + image_len;
+    u8 *f = calloc(1, *len);
+    if (!f) host_fatal("selftest: no memory");
+    f[0] = 'M'; f[1] = 'Z';
+    f[2] = (u8)(*len % 512); f[3] = (u8)(*len % 512 >> 8);
+    f[4] = (u8)((*len + 511) / 512); f[5] = (u8)((*len + 511) / 512 >> 8);
+    f[8] = 2;                                      /* header 2 paragraphs, no relocations, cs:ip 0:0 */
+    f[24] = 0x1C;
+    u8 *img = f + 0x20;
+    static const u8 c0[] = { 0xBF, 0, 0, 0x8B, 0x36, 0x02, 0x00 };
+    memcpy(img, c0, sizeof c0);
+    img[1] = (u8)dg; img[2] = (u8)(dg >> 8);
+    static const s16 head[6] = { 0, 804, 1608, 2411, 3212, 4011 };
+    size_t at = (size_t)dg * 16 + 0x2084;
+    for (int i = 0; i < 6 && at + 2 * i + 2 <= image_len; i++) {
+        s16 v = (s16)(head[i] + (i == 2 ? sin_bump : 0));
+        img[at + 2 * i] = (u8)v;
+        img[at + 2 * i + 1] = (u8)((u16)v >> 8);
+    }
+    return f;
+}
+
+static bool build_ok(ProgId id, u32 image_len, u16 dg, int sin_bump, char *msg, size_t n)
+{
+    size_t len;
+    u8 *f = fake_exe(image_len, dg, sin_bump, &len);
+    ExeFile e;
+    bool parsed = exe_parse(f, len, &e);
+    free(f);
+    check(parsed && e.image_len == image_len, "build check: the test MZ parses (%u bytes)", (unsigned)image_len);
+    if (!parsed) return false;
+    bool ok = exe_build_check(id, &e, msg, n);
+    exe_free(&e);
+    return ok;
+}
+
+static void test_builds(void)
+{
+    char msg[512];
+    check(build_ok(PROG_VGAME, 162460, 0x1E23, 0, msg, sizeof msg) && !msg[0], "build check: the supported VGAME is accepted");
+    check(build_ok(PROG_START, 89023, 0x0A95, 0, msg, sizeof msg), "build check: the supported START is accepted");
+    check(build_ok(PROG_SETUP, 13437, 0x024C, 0, msg, sizeof msg), "build check: the supported SETUP is accepted");
+    check(!build_ok(PROG_VGAME, 163004, 0x1E42, 0, msg, sizeof msg) && strstr(msg, "VGAME.EXE is a different release") &&
+          strstr(msg, "163004 bytes") && strstr(msg, "DGROUP 1E42") && strstr(msg, "GOG 473.04") && strstr(msg, "162460"),
+          "build check: the GOG VGAME (163004 bytes, DGROUP 1E42) is refused: %s", msg);
+    check(!build_ok(PROG_VGAME, 162460, 0x1E23, -1, msg, sizeof msg) && strstr(msg, "sine table"),
+          "build check: a VGAME with another sin_tab is refused: %s", msg);
+    check(!build_ok(PROG_VGAME, 162460, 0x1E24, 0, msg, sizeof msg) && strstr(msg, "DGROUP 1E24"),
+          "build check: a VGAME with another DGROUP is refused");
+    check(!build_ok(PROG_END, 46040, 0x05FA, 0, msg, sizeof msg) && strstr(msg, "END.EXE"),
+          "build check: an END of another size is refused");
+}
+
 int platform_selftest(void)
 {
     test_rtl();
@@ -435,6 +495,7 @@ int platform_selftest(void)
     test_joystick();
     test_timer();
     test_exec();
+    test_builds();
     printf("platform-test %s: %d checks, %d failed\n", fails ? "FAILED" : "OK", checks, fails);
     return fails ? 1 : 0;
 }

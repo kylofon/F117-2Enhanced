@@ -9,7 +9,7 @@ fonts, sprites, palettes and 3D models are used as they are; what changes is how
 graphics are rasterised (at a multiple of 320x200) and how often frames are drawn (display rate instead of the
 original's one frame per sim step), and the 3D view can be wider and taller than the original: the cockpit art stays
 in place, unchanged, and the world is simply shown further to the left, right and above it (Decisions 2026-10-19).
-A longer view distance would change what the original shows: it comes only as a drawing option (S8.2, Decision 2026-11-11).
+A longer view distance is an option since Decision 2026-11-10 (S7.6 / S7.7; off in `--classic`).
 
 Token efficiency is a first-class goal: small subtasks, one session each, the cheapest model that can
 do the job, and the user doing what is cheap for a human (looking at pictures, playing).
@@ -22,6 +22,8 @@ remove it when it is done.
 
 | Task | What to do | For | Time |
 |---|---|---|---|
+| Get the GOG `VGAME.EXE` (S8.2) | Buy / download the GOG edition of F-117A (GOG updated it to 473.04, `VGAME.EXE` only) and copy its whole game folder to `C:\Coding\F117-2\Game-gog` (never committed). Also keep your own `VGAME.EXE` as it is. Tell the agent the folder is there | S8.2 | 15 min |
+| U2 (S8.1) | Rebuild, then `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --check --game-dir "C:\Coding\F117-2\Game"`: it must print "...present and of the supported release" and a normal start must work (if it reports "a different release", send me the message: the expected sizes come from the RE notes). Once you have the GOG folder: the same `--check` with `--game-dir "C:\Coding\F117-2\Game-gog"` and a start must give the "VGAME.EXE is a different release (load image 163004 bytes, DGROUP 1E42)..." message (box + `f117.log`), no crash | S8.1 | 5 min |
 | U1 (S4.1) | Run `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --game-dir "C:\Coding\F117-2\Game" --render-scale 4 --fps vsync`, fly a mission, then the same with `--fps off`. Look for: the own aircraft / camera motion and the horizon smooth (vs stepping at ~10 Hz with off), any judder or a hitch at regular intervals, objects (ground units, other aircraft) still stepping (expected until S4.2), the HUD ladder / horizon moving with the world, pause (Alt-P) and view switches (F1..F10, c) without black flashes, the latency feel of the controls. Also try `--true-night --smooth-shading` (expected: hardly smoother, too slow at N = 4) and `--render-scale 2` | S4.1 | 15 min |
 | U1 (S4.3) | Same build as U1 (S4.1), so do them together. Run `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --game-dir "C:\Coding\F117-2\Game" --render-scale 4 --fps vsync`, fly a mission in the first cockpit view, then the same with `--fps off`, then with `--fps vsync --smooth-shading --true-night` (a night mission). Look for: (1) smoothness: the horizon and the world glide with vsync and step at ~10 Hz with off; no hitch once per step (about 10 a second) and no other regular judder; (2) the fallback: with smooth shading + true night the motion is still even but at a lower rate (on your 164 Hz monitor about 41-55 pictures a second; on a 60 Hz one 30), not uneven; (3) no picture changes against S4.1 / `--fps off`: the same HUD, panel, MFDs, TV and map windows, the extended world beside the frame, no flicker, no black or stale strips, night shading the same. Also try `--fps 60` and `--fps 30`, and a 4:3 window or `--no-wide` (the views without extension) | S4.3 | 15 min |
 | U1 (S4.2) | Same build. Run `& "C:\Coding\F117-2Enhanced\f117port\build\f117-enhanced.exe" --game-dir "C:\Coding\F117-2\Game" --render-scale 4 --fps vsync`, fly a mission with traffic and threats (taxi past the airbase traffic, fly over a SAM / radar site, get shot at, drop a bomb), then the same with `--fps off`. Look for: ground units, other aircraft, missiles, tracers, smoke and the falling wreck gliding (not stepping at ~10 Hz as with off); radar dishes turning smoothly; the HUD ladder, horizon, heading tape, target boxes and velocity vector moving with the world, locked to it (no lag or wobble against the ground); the delayed view (F-key cycle) and the target views smooth; no object jumping back, flickering or doubling when a missile is fired, a unit is destroyed or a view changes | S4.2 | 15 min |
@@ -37,7 +39,8 @@ remove it when it is done.
 - **Phase 4:** S4.1 (decouple sim and display, `--fps`) built, U1 pending; S4.3 (one render per refresh, budget, 30 Hz fallback) built, U1 pending.
 - **Phase 4 (cont.):** S4.2 (objects and HUD interpolated) built, U1 pending. S4.6 (map MFD smooth at display rate and scrolling continuously, user request) built, U1 pending.
 - **Phase 7 (Mac art, option):** S7.1 (tool, `--mac-art`) done; S7.2 (side / rear views) done (U1 OK); S7.3 (front cockpit design, DESIGN 7) done; S7.4 (front cockpit) done (U1 OK); S7.5 (launcher checkbox + folder row, README) built, U1 pending; Q7.1-Q7.6 answered (defaults). Merged into main 2026-11-11.
-- **Phase 8 (v0.4.0, user reports):** planned 2026-11-11: S8.1 (GOG files, after `../F117-2` S7.1 / S7.2), S8.2 (longer drawing distance, option), S8.3 (release).
+- **Phase 8 (game versions, issue #2):** planned 2026-11-10; the GOG build crashes at the first flight frame (also `--classic`): the engine reads `VGAME.EXE`'s data at the offsets of one build. S8.1 done 2026-11-10 (build check, U2 pending) → S8.2 (needs the GOG files, User to-do).
+- **Next release (v0.4.0, S6.5):** view distance (S7.6 / S7.7), the GOG build (S8.2), the macOS build (PR #5, merged 2026-11-11). v0.3.0 (S6.4) shipped the Mac art alone.
 - **Next:** S4.4 (input and latency); S4.5 / S5.1 launcher work is separate. Your tasks: **User to-do** above (U1 of S4.1 and S4.3 together, U1 of S5.1).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
   (symptom, file, what was tried). Never carry an old transcript over.
@@ -194,6 +197,7 @@ Notes:
 | S6.1 | README features, CHANGELOG, `tools/make_release.py` adapted (`f117-enhanced`, launcher), v0.1.0 zip | H | S | released 2026-10-26 (public: github.com/kylofon/F117-2Enhanced, tag v0.1.0) |
 | S6.3 | v0.2.0 (smooth frames, Phase 4): CHANGELOG, README, versions, zip | H | S | released 2026-10-29 (tag v0.2.0) |
 | S6.4 | v0.3.0 (Mac cockpit, Phase 7; fine terrain S4.7): CHANGELOG, README, versions, zip (user request 2026-11-11) | H | S | released 2026-11-11 (tag v0.3.0) |
+| S6.5 | v0.4.0: view distance (S7.6–S7.7), the GOG build (S8.1–S8.3), macOS build (PR #5): CHANGELOG, README, versions, Windows zip; a macOS zip from `tools/make_macos_app.sh` if the user has a Mac at hand; draft the replies to issues #1–#3 for the user to post | H | S | |
 
 Notes:
 - S6.1 (2026-10-26): `python tools/make_release.py` (version read from `f117port/src/version.h`) built a clean Release with the launcher, ran all 39 ctests (all passed, 2364 s) and wrote `release/F117-Enhanced-v0.1.0-win64.zip` (10.66 MB, 46 files, SHA-256 ef2591bc87d0...; includes the approved roster/ROSTER.FIL = the faithful backup 2026-10-14, SHA-256 26447d654d6b..., sole exception in the guard): both exes, 17 DLLs (SDL3, wxWidgets, mingw runtime, image libs), README, CHANGELOG, LICENSE, 20 licence files, `Game/PUT_GAME_FILES_HERE.txt`. Game-file guard passed. Smoke test from an extracted copy: `--version` = 0.1.0, launcher `--print-command` OK. No tag, no push, no GitHub release yet. Open: the optional clean pilot roster (no clean original found, see the session report).
@@ -215,6 +219,8 @@ Notes:
 | S7.3 | Front cockpit design (`DESIGN.md` section 7): map every dynamic element of the PC panel (map / TV / scope MFDs, threat display, lights, gauges, readouts, ordnance, the HUD and the 3D view centre) onto `CockpitOff` (640x480: canopy windows, HUD glass (237,9)-(402,175), displays 146x144 at (247,271), 100x99 at (429,300), 54x54 at (135,325)); MFD aspect (fill the larger window: stretch, letterbox or show more area); which PC elements have no place on the Mac panel; the first and second cockpit views; questions for the user | O | M |done 2026-11-04 |
 | S7.4 | Front cockpit with the Mac picture, as designed in S7.3 (`--mac-art`); user checks each element's position (U1) | S | L |done 2026-11-04 (U1 OK 2026-11-04) |
 | S7.5 | Launcher: "Mac cockpit" checkbox and "Mac art" (the Mac release's .sit, read by the game in memory, `macsit.c`; or a converted folder; Play disabled when the pictures are missing; user requests 2026-11-04) in the Enhanced box, greyed out by Classic; README section (how to get the folder with `tools/mac_art.py`) | H | S | done 2026-11-04, U1 pending |
+| S7.6 | View distance design (`DESIGN.md` section 8, issue #3): where the original cuts objects, buildings and the ground dots (B85D range, the terrain cell block, the object visibility tables, the low-altitude ground dots and the altitude they stop at); how far each can go at N× without new art; cost per refresh; which parts touch the sim (detection, AI) and must stay as they are (draw only, in display passes); questions for the user | O | M | |
+| S7.7 | View distance as designed in S7.6: `--view-distance N` (1 = the original, default 1 until the user picks one in U1; `--classic` = 1); ground dots at higher altitude; launcher slider in the Enhanced box; sim-equality ctest (`sim_interp_equal` with it on) | S | L | |
 
 Notes:
 - 2026-11-03 survey (`work/mac`, not committed): the Mac 2.3.2 archives (`f117a_stealth_fighter.sit` and others in the
@@ -227,20 +233,6 @@ Notes:
   `HUDAltitude`, `HUDHeading`, `HUDAirSpeed`, `HUDSprites`, `Tracers`), shell screens at 512x384 and mission maps at
   512x323 (layouts differ from the PC 320x200 ones), 6 FLC movies at 512x384 (`F117a Movies`), 33 sampled sounds
   (speech callouts, music, engine; `F117a Sound`, 7.4–11 kHz 8-bit).
-
-### Phase 8 — v0.4.0: user reports (GitHub issues, 2026-11-10)
-| Id | Task | Model | Size | Status |
-|---|---|---|---|---|
-| S8.1 | GOG files (issue #2, crash at the first flight frame with the GOG `VGAME.EXE`): port `../F117-2` S7.1 (build detection, a clear message in the game, `--check` and the launcher's status line instead of a crash) and S7.2 (the GOG build supported) once they are done there; `--classic` and the Enhanced hooks work on both builds | S | M | |
-| S8.2 | Longer drawing distance (issue #3, option, default off, launcher switch; `--classic` = the original): buildings and ground objects drawn further away, the ground dots shown from higher altitude. Drawing only: the detection, AI and weapon ranges and every sim table stay as they are (the sandboxed display pass, S2.4, and the S3.4 B85D range / terrain-cell widening are the starting points) | O | M | |
-| S8.3 | v0.4.0: CHANGELOG, README, versions, zip (`tools/make_release.py`); draft the replies to issues #1, #2, #3 for the user to post | H | S | |
-
-Notes:
-- 2026-11-11: open issues at github.com/kylofon/F117-2Enhanced: #1 cockpit cut off on wide screens (answered by Phase 7,
-  the Mac cockpit), #2 crash with the GOG files (Enyakk's analysis in the issue: `fx_asin` divide by zero at VGAME
-  +0x44606, the GOG `VGAME.EXE` is LZ91-packed, its `sin_tab` at DS:2084 differs by 1 from the reference build; the port
-  reads the data at the reference build's offsets), #3 longer drawing distance. The owner's replies promised all three
-  for v0.3.0; v0.3.0 became the Mac cockpit release (2026-11-11), so #2 and #3 move to v0.4.0.
 
 ## User tasks
 
@@ -270,12 +262,33 @@ Several bugs in one message; one session then fixes them in a batch.
 5. **GitHub**: public `kylofon/F117-2Enhanced` since 2026-10-26 (v0.1.0 released).
 6. **Mac front cockpit**: answered 2026-11-04, defaults OK (see Decisions). (`--mac-art`, DESIGN.md 7.3; S7.4 is built with the defaults): Q7.1 HUD and world scale: default the PC HUD fits the Mac HUD glass (the world ~112 degrees across the picture), alternative the PC scale (HUD clipped by the glass frame); Q7.2 MFDs: default stretched to the Mac displays (6 % aspect difference); Q7.3 lamp pairs (threat -> TRAN, chaff mode / jammer -> ECM / IRJ, damage bits -> NW FC FIRE BD ENG); Q7.4 readouts: default the PC digits in the Mac colours, alternative the Mac 640 font; Q7.5 second cockpit view (`c`): default the PC picture; Q7.6 wide windows: default the Mac picture fitted to the height (black sides).
 
+### Phase 8 — Game versions (issue #2, 2026-11-10)
+| Id | Task | Model | Size | Status |
+|---|---|---|---|---|
+| S8.1 | In `../F117-2` first, then here: identify the `VGAME.EXE` build (size + SHA-256 of the file and of the unpacked image) in `exe_load` and `--check`; an unknown build stops with a clear message ("unsupported VGAME.EXE build …; supported: …") instead of crashing; ctest with a patched image | S | S | done 2026-11-10 · U2 pending |
+| S8.2 | Support the GOG build (473.04; needs the User to-do): diff the two unpacked images (code and DGROUP: `tools/x86dis.py`, the reporter's notes in issue #2: `sin_tab` 1 ulp different, DGROUP at paragraph 1E42h, divide fault in `fx_asin` at +44606h); per-build symbol tables (`gen/symbols_vgame.h` → one per build, chosen at load); the golden / chain ctests with both builds; port to this repo | O | L | |
+| S8.3 | macOS: `f117.log` to `~/Library/Logs/F-117A Enhanced/` (beside the program it breaks the .app signature; PR #5 note); `../F117-2` first | H | S | |
+
+Notes:
+- 2026-11-10 (issue #2): crash at the first flight frame with the GOG files, also with `--classic` and with the bundled
+  roster; `--check` passes. The faithful engine keeps each program's data at the DGROUP offsets of the build it was
+  made from (`platform/exeload.c`, `startup.c`, `gen/symbols_vgame.h`) and does not check which build it loads, so a
+  different `VGAME.EXE` reads and writes the wrong data. Reporter: Enyakk (minidump offered).
+- S8.1 (2026-11-10): faithful commit d12512c (`../F117-2` branch claude/determined-fermi-g574xb, PLAN S6.3) applied
+  unchanged (shared engine code, no `ENH:` mark; `--classic` = faithful). `exe_build_check()` (`platform/exeload.c`)
+  compares each unpacked program with the build the port was made from: load image size (RE_GUIDE "Packers") and the
+  c0 DGROUP paragraph (RE_GUIDE driver table), for VGAME also sin_tab[0..5] at DS:2084 = 0, 804, 1608, 2411, 3212, 4011
+  (spec_R11a 2.3, verified against the image). `game_build_problem()` runs it at start (host_fatal: f117.log + message
+  box) and in `--check`; `prog_image_load` refuses too. ctest `platform` (`test_builds`, synthetic MZ images). No SHA-256
+  (no game files in the session). U2: `--check` and a start with your own files (passes) and with the GOG files (message).
+
 ## Decisions
 (Settled answers from U3 go here, dated.)
-- 2026-11-11, user reports (issue #3): the longer view distance is no longer parked. It becomes S8.2, an option (default
-  off, launcher switch) that only draws buildings, ground objects and ground dots further away; the simulation's ranges
-  are unchanged and `--classic` keeps the original distance. Issue #2 (GOG files) is an engine fix: `../F117-2` S7.1 /
-  S7.2 first, then S8.1 here.
+- 2026-11-10, user decision (issue #3): the longer view distance is no longer parked: an **option** (S7.6 / S7.7) for
+  buildings, ground objects and the low-altitude ground dots, drawn further and the dots at higher altitude; drawing
+  only (the sim, detection and AI unchanged); `--classic` = the original distance. Ships in v0.4.0 (v0.3.0 shipped the Mac art alone, 2026-11-11).
+- 2026-11-10, user decision (issue #2): support the GOG `VGAME.EXE` (473.04) as well as the build the port was made
+  from (Phase 8), not only refuse it.
 - 2026-11-04, U3 item 6 (Q7.1-Q7.6): the Mac front cockpit defaults of DESIGN.md 7.3 stay as built. The launcher gets a **Mac cockpit** checkbox (key `MacCockpit`) that turns `--mac-art` on and off; the folder is kept when it is off.
 - 2026-11-03, user request: the Mac release's cockpit and side-view pictures (640x480, original MicroProse art) as an
   **optional** enhancement (Phase 7), like the Amiga graphics in the user's Test Drive ports. Off by default; the user
@@ -308,7 +321,6 @@ Several bugs in one message; one session then fixes them in a batch.
   are not extended: the whole picture, art included, is scaled up to fill the wider window.
 
 ## TODO (parked)
-- [x] Longer view distance: taken as S8.2, a drawing-only option (Decision 2026-11-11).
 - [ ] Roland MT-32 (`RSOUND.117`; Munt, user ROMs) — faithful TODO, would be done in `../F117-2` first.
 
 ## Future mod (not this repo's goal)

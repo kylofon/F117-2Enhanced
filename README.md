@@ -36,6 +36,27 @@ folder (back up your own `ROSTER.FIL` first).
 
 The errors the game reports go to `f117.log` beside the program.
 
+### Supported game version
+
+The engine reads each program's data at the offsets of the release it was made from: the MicroProse DOS release of
+*F-117A Nighthawk Stealth Fighter 2.0* (1991). At start (and with `--check`) it unpacks the seven programs and
+compares them with that release; another release stops with a message (also in `f117.log`) instead of crashing.
+What it expects (LZEXE-packed files; the size of the unpacked load image and the DGROUP paragraph):
+
+| File | Load image (bytes) | DGROUP |
+|---|---|---|
+| `SETUP.EXE` | 13 437 | 024C |
+| `MPS_LOGO.EXE` | 14 721 | 0332 |
+| `PLAYER.EXE` | 18 455 | 02A3 |
+| `START.EXE` | 89 023 | 0A95 |
+| `VGAME.EXE` | 162 460 | 1E23 (and its sine table at DS:2084 starts 0, 804, 1608, 2411, 3212, 4011) |
+| `END.EXE` | 46 039 | 05FA |
+| `DSWAP.EXE` | 19 495 | 0225 |
+
+**The GOG release is not supported yet**: its `VGAME.EXE` (version 473.04, 95 979 bytes, load image 163 004 bytes,
+DGROUP 1E42) is a different build ([issue #2](https://github.com/kylofon/F117-2Enhanced/issues/2)); support for it
+is planned.
+
 ## Command line
 
 ```text
@@ -84,6 +105,21 @@ python tools/make_release.py      # clean Release build with the launcher, ctest
 Needs CMake 3.24, a C11 compiler and SDL 3 (MSYS2 `mingw64`: `mingw-w64-x86_64-sdl3`, and
 `mingw-w64-x86_64-wxwidgets3.2-msw` for the launcher; `-DF117_LAUNCHER=OFF` skips it). The program is
 `f117port/build/f117-enhanced.exe`. Tests that need the game files skip themselves when `Game/` is missing.
+
+### macOS
+
+Builds natively with Homebrew. Tested on an Apple Silicon Mac (macOS 27, SDL 3.4); Intel Macs are untested.
+
+```bash
+tools/build_macos.sh /path/to/your/F-117      # installs sdl3, cmake, ninja if missing
+./play.command                                 # or: ./play.command --fullscreen --render-scale 4
+```
+
+The launcher is not built on macOS (`-DF117_LAUNCHER=OFF`); use the command-line options above.
+
+To make a double-clickable `F-117A Enhanced.app` (SDL3 bundled; asks for the game folder on first launch, Option-click to change it):
+`tools/make_macos_app.sh` (output in `release/`). Extra command-line options go in
+`~/Library/Application Support/F-117A Enhanced/options` (e.g. `--fullscreen --render-scale 4`).
 
 ## Launcher
 
