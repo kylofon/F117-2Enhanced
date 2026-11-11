@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-11)
+
+The Mac cockpit. If you own the Mac release, the game can show its 640x480 cockpit and side-view pictures
+instead of the PC ones. Also a fix for the distant terrain near the ground.
 
 - **Mac cockpit** (`--mac-art FILE|DIR`, off by default). The Mac release of F-117A (2.x) drew its cockpit and its looking-out views as 640x480 pictures. If you own the Mac version, the game can show them instead of the PC pictures:
   - Point the game at the release's StuffIt archive (e.g. `f117a_stealth_fighter.sit`). The pictures are read from it at each start and nothing is written. It also takes the `F117a Art` resource fork, or a folder converted with `tools/mac_art.py`. Nothing of the Mac release is part of this project. A missing archive or picture leaves the PC art (the reason is in `f117.log`). `--classic` ignores it.

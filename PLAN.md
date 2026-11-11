@@ -33,11 +33,11 @@ remove it when it is done.
 ## Status
 
 - **Done:** S0.1 (repo from the faithful port), S1.1 (`DESIGN.md`, the render and timing design), S2.1 (canvas, compositor, shadow plane; U1 OK 2026-10-19), S2.2 (render3d at N×; U1 OK 2026-10-20), S2.3 (tests, reference rasteriser, dumps; U1 OK 2026-10-20), S2.4 (sandboxed display pass, hash ctest), S3.1 (objects and views at N×; U1 OK 2026-10-20), S3.2 (TV camera and map MFD at N×; U1 OK 2026-10-20), S3.3 (HUD and MFD vector graphics at N×; U1 OK 2026-10-21), S3.4 (wider view; U1 OK 2026-10-22), S3.5 (smooth distance shading, option; U1 OK 2026-10-22), S3.6 (true night, option; U1 OK 2026-10-26).
-- **Release:** v0.1.0 released 2026-10-26; v0.2.0 (smooth frames) released 2026-10-29 (S6.3, tag v0.2.0).
+- **Release:** v0.1.0 released 2026-10-26; v0.2.0 (smooth frames) released 2026-10-29 (S6.3, tag v0.2.0); v0.3.0 (Mac cockpit) released 2026-11-11 (S6.4, tag v0.3.0).
 - **Phase 4:** S4.1 (decouple sim and display, `--fps`) built, U1 pending; S4.3 (one render per refresh, budget, 30 Hz fallback) built, U1 pending.
 - **Phase 4 (cont.):** S4.2 (objects and HUD interpolated) built, U1 pending. S4.6 (map MFD smooth at display rate and scrolling continuously, user request) built, U1 pending.
 - **Phase 7 (Mac art, option):** S7.1 (tool, `--mac-art`) done; S7.2 (side / rear views) done (U1 OK); S7.3 (front cockpit design, DESIGN 7) done; S7.4 (front cockpit) done (U1 OK); S7.5 (launcher checkbox + folder row, README) built, U1 pending; Q7.1-Q7.6 answered (defaults). Merged into main 2026-11-11.
-- **Phase 8 (v0.3.0, user reports):** planned 2026-11-11: S8.1 (GOG files, after `../F117-2` S7.1 / S7.2), S8.2 (longer drawing distance, option), S8.3 (release).
+- **Phase 8 (v0.4.0, user reports):** planned 2026-11-11: S8.1 (GOG files, after `../F117-2` S7.1 / S7.2), S8.2 (longer drawing distance, option), S8.3 (release).
 - **Next:** S4.4 (input and latency); S4.5 / S5.1 launcher work is separate. Your tasks: **User to-do** above (U1 of S4.1 and S4.3 together, U1 of S5.1).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
   (symptom, file, what was tried). Never carry an old transcript over.
@@ -193,10 +193,12 @@ Notes:
 |---|---|---|---|---|
 | S6.1 | README features, CHANGELOG, `tools/make_release.py` adapted (`f117-enhanced`, launcher), v0.1.0 zip | H | S | released 2026-10-26 (public: github.com/kylofon/F117-2Enhanced, tag v0.1.0) |
 | S6.3 | v0.2.0 (smooth frames, Phase 4): CHANGELOG, README, versions, zip | H | S | released 2026-10-29 (tag v0.2.0) |
+| S6.4 | v0.3.0 (Mac cockpit, Phase 7; fine terrain S4.7): CHANGELOG, README, versions, zip (user request 2026-11-11) | H | S | released 2026-11-11 (tag v0.3.0) |
 
 Notes:
 - S6.1 (2026-10-26): `python tools/make_release.py` (version read from `f117port/src/version.h`) built a clean Release with the launcher, ran all 39 ctests (all passed, 2364 s) and wrote `release/F117-Enhanced-v0.1.0-win64.zip` (10.66 MB, 46 files, SHA-256 ef2591bc87d0...; includes the approved roster/ROSTER.FIL = the faithful backup 2026-10-14, SHA-256 26447d654d6b..., sole exception in the guard): both exes, 17 DLLs (SDL3, wxWidgets, mingw runtime, image libs), README, CHANGELOG, LICENSE, 20 licence files, `Game/PUT_GAME_FILES_HERE.txt`. Game-file guard passed. Smoke test from an extracted copy: `--version` = 0.1.0, launcher `--print-command` OK. No tag, no push, no GitHub release yet. Open: the optional clean pilot roster (no clean original found, see the session report).
 - S6.3 (2026-10-29): `python tools/make_release.py` built a clean Release, ran all 43 ctests (all passed, 3228 s) and wrote `release/F117-Enhanced-v0.2.0-win64.zip` (10.71 MB, 46 files, SHA-256 09059b05a47b...). Game-data check OK. Smoke test from an extracted copy: `--version` = 0.2.0, launcher `--print-command` OK. Versions: `f117port/src/version.h`, `f117port/launcher/version.h`. Released 2026-10-29: tag v0.2.0 pushed, GitHub release with the zip, notes = the CHANGELOG 0.2.0 section.
+- S6.4 (2026-11-11): `python tools/make_release.py` built a clean Release, ran all 43 ctests (all passed, 1781 s) and wrote `release/F117-Enhanced-v0.3.0-win64.zip` (10.74 MB, 46 files, SHA-256 f2ff2abfb81f...). Game-data check OK. Smoke test from an extracted copy: `--version` = 0.3.0, launcher `--print-command` OK. Released: tag v0.3.0 pushed, GitHub release with the zip, notes = the CHANGELOG 0.3.0 section.
 - S1.1–S5.2 come from the faithful plan's S6.2 ("native-resolution / widescreen / 60 fps 3D view, longer view
   distance"): resolution, frame rate and the wider view are taken; view distance is parked (TODO below).
 - Bugs in the engine: fix in `../F117-2` first (patch release when it matters), then port here.
@@ -226,19 +228,19 @@ Notes:
   512x323 (layouts differ from the PC 320x200 ones), 6 FLC movies at 512x384 (`F117a Movies`), 33 sampled sounds
   (speech callouts, music, engine; `F117a Sound`, 7.4–11 kHz 8-bit).
 
-### Phase 8 — v0.3.0: user reports (GitHub issues, 2026-11-10)
+### Phase 8 — v0.4.0: user reports (GitHub issues, 2026-11-10)
 | Id | Task | Model | Size | Status |
 |---|---|---|---|---|
 | S8.1 | GOG files (issue #2, crash at the first flight frame with the GOG `VGAME.EXE`): port `../F117-2` S7.1 (build detection, a clear message in the game, `--check` and the launcher's status line instead of a crash) and S7.2 (the GOG build supported) once they are done there; `--classic` and the Enhanced hooks work on both builds | S | M | |
 | S8.2 | Longer drawing distance (issue #3, option, default off, launcher switch; `--classic` = the original): buildings and ground objects drawn further away, the ground dots shown from higher altitude. Drawing only: the detection, AI and weapon ranges and every sim table stay as they are (the sandboxed display pass, S2.4, and the S3.4 B85D range / terrain-cell widening are the starting points) | O | M | |
-| S8.3 | v0.3.0: CHANGELOG, README, versions, zip (`tools/make_release.py`); draft the replies to issues #1, #2, #3 for the user to post | H | S | |
+| S8.3 | v0.4.0: CHANGELOG, README, versions, zip (`tools/make_release.py`); draft the replies to issues #1, #2, #3 for the user to post | H | S | |
 
 Notes:
 - 2026-11-11: open issues at github.com/kylofon/F117-2Enhanced: #1 cockpit cut off on wide screens (answered by Phase 7,
   the Mac cockpit), #2 crash with the GOG files (Enyakk's analysis in the issue: `fx_asin` divide by zero at VGAME
   +0x44606, the GOG `VGAME.EXE` is LZ91-packed, its `sin_tab` at DS:2084 differs by 1 from the reference build; the port
-  reads the data at the reference build's offsets), #3 longer drawing distance. The owner's replies promise all three
-  for v0.3.0.
+  reads the data at the reference build's offsets), #3 longer drawing distance. The owner's replies promised all three
+  for v0.3.0; v0.3.0 became the Mac cockpit release (2026-11-11), so #2 and #3 move to v0.4.0.
 
 ## User tasks
 

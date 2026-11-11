@@ -16,6 +16,8 @@ Status and plan: [PLAN.md](PLAN.md) (as a page: `python tools/plan_site.py`, the
 * **Smooth distance shading** and **True night**: options, off by default.
 * **Smooth frame rate**: drawn at the monitor's refresh rate (`--fps vsync|60|30|off`); the camera, objects,
   HUD and cockpit MFDs move smoothly between the game's steps.
+* **Mac cockpit** (optional): the Mac release's 640x480 cockpit and side-view pictures from your own Mac copy
+  (below).
 * **Launcher** with an Enhanced box, and `--classic`: the original picture and behaviour, as the faithful port.
 
 See [CHANGELOG.md](CHANGELOG.md).
@@ -24,7 +26,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 1. **You need the original game**: your own copy of the *F-117A Nighthawk Stealth Fighter 2.0* files (`F117.COM`,
    `SETUP.EXE`, `START.EXE`, `VGAME.EXE` and the rest). The launcher tells you which file is missing.
-2. **Unzip** `F117-Enhanced-v0.2.0-win64.zip` into a folder of your choice.
+2. **Unzip** `F117-Enhanced-v0.3.0-win64.zip` into a folder of your choice.
 3. **Start `f117-enhanced-launcher.exe`** and point **Folder** at your game files (or copy them into the `Game`
    folder beside it). The folder must be writable: the game saves your pilot roster there.
 4. Set the Enhanced options if you like and press **Play**. In SETUP answer **N** for the joystick and **2** for AdLib.
