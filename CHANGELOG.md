@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Mac cockpit** (`--mac-art FILE|DIR`, off by default). The Mac release of F-117A (2.x) drew its cockpit and its looking-out views as 640x480 pictures. If you own the Mac version, the game can show them instead of the PC pictures:
+  - Point the game at the release's StuffIt archive (e.g. `f117a_stealth_fighter.sit`). The pictures are read from it at each start and nothing is written. It also takes the `F117a Art` resource fork, or a folder converted with `tools/mac_art.py`. Nothing of the Mac release is part of this project. A missing archive or picture leaves the PC art (the reason is in `f117.log`). `--classic` ignores it.
+- **Launcher:** a **Mac cockpit** checkbox and a **Mac art** row (Browse for the `.sit`) in the Enhanced box.
 - **Fine terrain** (`--fine-terrain`, default on). Near the ground the coast and the land / sea edges of the distant terrain were drawn too low and moved in steps as the aircraft climbed (at the Libya start the hangars on the right stood in the water). The terrain now uses the exact height of the camera. Also in the original game. The horizon is no longer rounded to a whole row either, and a ground edge that runs behind the camera is cut at the right place, so the coast no longer creeps away and jumps back as you climb. `--no-fine-terrain` or `--classic` brings the original drawing back.
 
 ## 0.2.0 (2026-10-29)
