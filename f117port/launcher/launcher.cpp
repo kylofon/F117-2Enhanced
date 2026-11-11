@@ -15,6 +15,7 @@
 #include <wx/spinctrl.h>
 #include <wx/sizer.h>
 #include <wx/statbmp.h>
+#include <wx/generic/statbmpg.h>
 #include <wx/statbox.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
@@ -41,6 +42,7 @@ namespace {
 const char* const WEBSITE = "https://kkania.com";
 const char* const SUPPORT = "https://buymeacoffee.com/krzysztofkania";
 const char* const SECTION = "Game";
+const char* const MAC_FILES = "https://archive.org/details/f117a_stealth_fighter";
 
 const int MIN_SCALE = 1, MAX_SCALE = 6, DEFAULT_SCALE = 3;
 // The game's speed: retrace ticks (70.09 a second) a frame at least in flight (--frame-ticks; 0 = the original pacing only).
@@ -110,7 +112,11 @@ LauncherDialog::LauncherDialog()
                       "(not under Program Files).");
     program_ = PathRow(fb, filesGrid, "&Program:", "f117-enhanced, the game.", &browseProgram);
     auto* statusRow = new wxBoxSizer(wxHORIZONTAL);
-    statusIcon_ = new wxStaticBitmap(fb, wxID_ANY, wxArtProvider::GetBitmapBundle(wxART_WARNING, wxART_MENU));
+    // The generic control: the native one gets no mouse clicks on Windows.
+    statusIcon_ = new wxGenericStaticBitmap(fb, wxID_ANY, wxArtProvider::GetBitmapBundle(wxART_WARNING, wxART_MENU));
+    statusIcon_->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent&) {
+        if (macWrong_) wxLaunchDefaultBrowser(MAC_FILES);
+    });
     statusNote_ = new wxStaticText(fb, wxID_ANY, wxEmptyString);
     statusRow->Add(statusIcon_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, small);
     statusRow->Add(statusNote_, 1, wxALIGN_CENTER_VERTICAL);
@@ -340,6 +346,9 @@ void LauncherDialog::UpdateState() {
         note = "Found the game's files.";
     const bool ok = haveProgram && missing.empty() && macMissing.empty();
     statusIcon_->Show(!ok);
+    macWrong_ = !macMissing.empty();
+    statusIcon_->SetCursor(macWrong_ ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
+    statusIcon_->SetToolTip(macWrong_ ? "Get the Mac release at the Internet Archive" : "");
     statusNote_->SetLabel(note);
     play_->Enable(ok);
     Layout();
